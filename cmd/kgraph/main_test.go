@@ -54,9 +54,6 @@ func TestRelease(t *testing.T) {
 		!strings.Contains(out, "v2.4.0\tnot a release") {
 		t.Errorf("release of no release = %q, %d, want 1", out, code)
 	}
-	if _, code := capture(t, "lookup", "abc"); code != 2 {
-		t.Errorf("lookup without a tree exited %d, want 2", code)
-	}
 	dir := t.TempDir()
 	if out, code := capture(t, "--tree", dir, "lookup", "abc"); code != 1 || !strings.Contains(out, dir+" is not a git repository") {
 		t.Errorf("lookup in a directory that is no repository = %q, %d, want 1", out, code)
@@ -74,12 +71,16 @@ func TestRelease(t *testing.T) {
 }
 
 // A tree without remotes is read from HEAD; the first tag that contains a
-// commit gives its release, and a Fixes: tag links the commits.
+// commit gives its release, and a Fixes: tag links the commits. The tree
+// is the current directory unless --tree says otherwise, and its cache
+// lives under the user cache directory unless --cache does.
 func TestLookupAndFixes(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
 	dir := t.TempDir()
+	caches := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", caches)
 	gitRun(t, dir, "init", "-q", "-b", "master")
 	write := func(content, msg string) string {
 		t.Helper()
@@ -98,9 +99,26 @@ func TestLookupAndFixes(t *testing.T) {
 	side := write("int b;\n", "b: on a branch the graph does not read")
 	gitRun(t, dir, "checkout", "-q", "master")
 
-	out, code := capture(t, "--tree", dir, "tags")
+	t.Chdir(dir)
+	out, code := capture(t, "tags")
 	if code != 0 || strings.TrimSpace(out) != "v6.1" {
 		t.Errorf("tags = %q, %d", out, code)
+	}
+	out, code = capture(t, "lookup", fix)
+	if code != 0 || !strings.Contains(out, fix+"\tmainline") {
+		t.Errorf("lookup in the current directory = %q, %d", out, code)
+	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(sub)
+	if out, code := capture(t, "lookup", fix); code != 0 || !strings.Contains(out, fix+"\tmainline") {
+		t.Errorf("lookup in a subdirectory = %q, %d", out, code)
+	}
+	t.Chdir(dir)
+	if files, _ := filepath.Glob(filepath.Join(caches, "kgraph", "*.cache")); len(files) != 1 {
+		t.Errorf("cache files under the user cache directory: %v, want one", files)
 	}
 	cache := filepath.Join(t.TempDir(), "graph.cache")
 	out, code = capture(t, "--tree", dir, "--cache", cache, "lookup", fix, strings.Repeat("0", 40))

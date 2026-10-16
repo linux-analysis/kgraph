@@ -9,6 +9,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -19,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -33,7 +36,7 @@ const usage = `usage: kgraph [flags] command [args]
 Flags may also follow the command; after --, every argument is one.
 
 commands:
-  build                  build the graph and, with --cache, write the cache
+  build                  build the graph and write its cache
   lookup HASH...         tree, tag, release, series, upstream and date
   fixes HASH...          the commits its Fixes: tags name
   fixed-by HASH...       the later commits whose Fixes: tags name it, in any tree
@@ -75,8 +78,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var o opts
 	fs := flag.NewFlagSet("kgraph", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&o.tree, "tree", "", "git repository of the kernel tree, a checkout or a bare clone")
-	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones")
+	fs.StringVar(&o.tree, "tree", ".", "git repository of the kernel tree, a checkout or a bare clone")
+	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones (default: one per tree under the user cache directory)")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
@@ -113,10 +116,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return 2
 	}
+	tree, err := filepath.Abs(o.tree)
+	if err != nil {
+		fmt.Fprintln(stderr, "kgraph:", err)
+		return 1
+	}
+	o.tree = tree
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	log := slog.New(slog.NewTextHandler(stderr, nil))
-	err := dispatch(ctx, o, cmd, cmdArgs, stdin, stdout, log)
+	err = dispatch(ctx, o, cmd, cmdArgs, stdin, stdout, log)
 	switch {
 	case errors.Is(err, errUsage):
 		fmt.Fprintln(stderr, "kgraph:", err)
@@ -142,20 +151,19 @@ func dispatch(ctx context.Context, o opts, cmd string, args []string, in io.Read
 			return fmt.Errorf("%w: unknown command %q", errUsage, cmd)
 		}
 	}
-	if o.tree == "" {
-		return fmt.Errorf("%w: --tree DIR names the kernel tree", errUsage)
-	}
 	if err := checkTree(ctx, o); err != nil {
 		return err
 	}
 	switch cmd {
 	case "tags":
-		return tags(ctx, o, out)
+		return tags(ctx, o, out, log)
 	case "remotes":
 		return remotes(ctx, o, out)
 	case "build":
 		_, err := build(ctx, o, log)
 		return err
+	case "lookup", "reverts":
+		return query(ctx, o, cmd, args, in, out, log)
 	}
 	return query(ctx, o, cmd, args, in, out, log)
 }
@@ -192,21 +200,48 @@ func print(out io.Writer, o opts, v any, text func()) error {
 	return enc.Encode(v)
 }
 
-// discover reads the layout of the tree, its cache file that of --cache.
-func discover(ctx context.Context, o opts) (*kgraph.Layout, error) {
+// discover reads the layout of the tree, its cache file that of --cache or
+// else the default one.
+func discover(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Layout, error) {
 	rem, err := kernel.FindRemotes(ctx, o.tree)
 	if err != nil {
 		return nil, err
 	}
-	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: o.cache})
+	cache := o.cache
+	if cache == "" {
+		if cache, err = defaultCache(ctx, o.tree); err != nil {
+			log.Warn("no cache directory: every build reads every commit", "err", err)
+		}
+	}
+	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: cache})
 }
 
 func build(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Graph, error) {
-	l, err := discover(ctx, o)
+	l, err := discover(ctx, o, log)
 	if err != nil {
 		return nil, err
 	}
 	return l.Build(ctx, log)
+}
+
+// defaultCache is the cache file of the tree at tree: one per repository,
+// wherever in it tree is, under the user's cache directory,
+// $XDG_CACHE_HOME/kgraph or ~/.cache/kgraph on Linux.
+func defaultCache(ctx context.Context, tree string) (string, error) {
+	gitDir, err := git.Run(ctx, tree, nil, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir = filepath.Join(dir, "kgraph")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(bytes.TrimSpace(gitDir))
+	return filepath.Join(dir, hex.EncodeToString(sum[:6])+".cache"), nil
 }
 
 // asked is a hash asked about: the full one when the graph has its commit,
@@ -376,7 +411,7 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 	if len(args) == 0 {
 		return fmt.Errorf("%w: %s takes commit hashes", errUsage, cmd)
 	}
-	l, err := discover(ctx, o)
+	l, err := discover(ctx, o, log)
 	if err != nil {
 		return err
 	}
@@ -509,8 +544,8 @@ func release(o opts, args []string, out io.Writer) error {
 }
 
 // tags lists the mainline releases whose tags the tree has.
-func tags(ctx context.Context, o opts, out io.Writer) error {
-	l, err := discover(ctx, o)
+func tags(ctx context.Context, o opts, out io.Writer, log *slog.Logger) error {
+	l, err := discover(ctx, o, log)
 	if err != nil {
 		return err
 	}
