@@ -109,11 +109,15 @@ func TestLookupAndFixes(t *testing.T) {
 		!strings.Contains(out, `"tree": "mainline"`) || strings.Contains(out, `"mainline"`+":") {
 		t.Errorf("fixes = %q, %d", out, code)
 	}
-	out, code = capture(t, "--tree", dir, "fixed-by", intro)
+	out, code = capture(t, "--tree", dir, "fixed-by", intro[:12])
 	if code != 0 || !strings.Contains(out, fix) {
 		t.Errorf("fixed-by = %q, %d", out, code)
 	}
-	out, code = capture(t, "--tree", dir, "fixes", fix, intro, "zz")
+	out, code = capture(t, "--tree", dir, "lookup", strings.ToUpper(fix[:12]), "zz")
+	if code != 0 || !strings.Contains(out, fix+"\tmainline") || !strings.Contains(out, "zz\tis not a commit id") {
+		t.Errorf("lookup by prefix = %q, %d", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "fixes", fix, intro[:12], "zz")
 	if code != 0 || !strings.Contains(out, fix+"\t"+intro+"\tmainline") || strings.Contains(out, "\n"+intro+"\t") ||
 		!strings.Contains(out, "zz\tis not a commit id") {
 		t.Errorf("fixes of several commits = %q, %d", out, code)

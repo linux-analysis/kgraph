@@ -13,18 +13,27 @@ type Commit struct {
 	i uint32
 }
 
-// Commit finds the commit with the full hex id, in either case; ok is false
-// when the graph lacks it.
+// Commit finds the one commit that the full or abbreviated hex id names,
+// in either case; ok is false when no commit or several do.
 func (g *Graph) Commit(id string) (Commit, bool) {
-	h, ok := parseHash([]byte(strings.ToLower(id)))
-	if !ok {
+	if len(id) == 0 || len(id) > 40 {
 		return Commit{}, false
 	}
-	i, ok := g.idx(h)
+	i, ok := g.resolve([]byte(strings.ToLower(id)))
 	if !ok {
 		return Commit{}, false
 	}
 	return Commit{g, uint32(i)}, true
+}
+
+// Ambiguous tells whether the ids of several commits start with the
+// abbreviated id, in either case, so that Commit finds none.
+func (g *Graph) Ambiguous(id string) bool {
+	if len(id) >= 40 {
+		return false
+	}
+	_, found := g.prefix([]byte(strings.ToLower(id)))
+	return found > 1
 }
 
 // Hash is the full hex id of the commit.

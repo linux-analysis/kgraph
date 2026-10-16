@@ -47,12 +47,13 @@ commands:
   remotes                the mainline and stable remotes
   series                 the stable series kernel.org supports
 
-Each line of an answer starts with the hash asked about, and for a hash
-the graph has no commit for, says why: it is not a commit id, names a
-commit that no branch or tag the graph reads reaches, or names none. But
-for lookup and reverts, the answers are about the commit's patch: a
-backport stands for its upstream, a copy for every copy, and a patch goes
-by its copy in the earliest release.
+Any hash may be abbreviated. Each line of an answer starts with the hash
+asked about, and for a hash the graph has no commit for, says why: it is
+not a commit id, names several commits, names a commit that no branch or
+tag the graph reads reaches, or names none. But for lookup and reverts,
+the answers are about the commit's patch: a backport stands for its
+upstream, a copy for every copy, and a patch goes by its copy in the
+earliest release.
 
 flags:
 `
@@ -212,7 +213,7 @@ func build(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Graph, error)
 type asked struct {
 	Hash    string `json:"hash"`
 	Found   bool   `json:"found"`
-	Missing string `json:"missing,omitempty"` // not-an-id, not-in-graph or no-commit
+	Missing string `json:"missing,omitempty"` // not-an-id, ambiguous, not-in-graph or no-commit
 	why     string
 }
 
@@ -272,8 +273,9 @@ type backportRow struct {
 }
 
 // lookups finds the commit of each hash of args and tells, for those the
-// graph has no commit for, why: not a full hex id, a commit git has and
-// no branch or tag the graph reads reaches, or none at all.
+// graph has no commit for, why: not a hex id, the prefix of several
+// commits, a commit git has and no branch or tag the graph reads reaches,
+// or none at all.
 func lookups(ctx context.Context, o opts, g *kgraph.Graph, args []string) ([]kgraph.Commit, []asked, error) {
 	commits, rows := make([]kgraph.Commit, len(args)), make([]asked, len(args))
 	var unknown []int
@@ -283,8 +285,10 @@ func lookups(ctx context.Context, o opts, g *kgraph.Graph, args []string) ([]kgr
 		switch commits[i], ok = g.Commit(h); {
 		case ok:
 			rows[i] = asked{Hash: commits[i].Hash(), Found: true}
-		case len(h) != 40 || strings.Trim(strings.ToLower(h), "0123456789abcdef") != "":
+		case len(h) == 0 || len(h) > 40 || strings.Trim(strings.ToLower(h), "0123456789abcdef") != "":
 			rows[i].Missing, rows[i].why = "not-an-id", "is not a commit id"
+		case g.Ambiguous(h):
+			rows[i].Missing, rows[i].why = "ambiguous", "names several commits"
 		default:
 			unknown = append(unknown, i)
 		}

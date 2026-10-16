@@ -236,6 +236,40 @@ func newKernel(t *testing.T) *kernelRepo {
 	return k
 }
 
+// Resolve names a commit by its full id or a unique prefix, in any case; a
+// prefix several commits share names none, and so does a commit no tip of
+// the graph reaches.
+func TestResolve(t *testing.T) {
+	k := newKernel(t)
+	g := build(t, k.dir, remotes)
+	fix := k.m["fix"]
+	for _, id := range []string{fix, fix[:12], strings.ToUpper(fix[:7])} {
+		if got, ok := resolveOf(g, id); !ok || got != fix {
+			t.Errorf("Resolve(%q) = %q, %v, want %s", id, got, ok, fix)
+		}
+	}
+	for _, id := range []string{"", "zz", strings.Repeat("0", 41), k.other, k.other[:12]} {
+		if got, ok := resolveOf(g, id); ok {
+			t.Errorf("Resolve(%q) = %q, want none", id, got)
+		}
+	}
+	byNibble := map[byte][]string{}
+	for _, h := range slices.Concat(slices.Collect(maps.Values(k.m)), slices.Collect(maps.Values(k.s))) {
+		byNibble[h[0]] = append(byNibble[h[0]], h)
+	}
+	for n, hs := range byNibble {
+		if _, ok := resolveOf(g, string(n)); ok != (len(hs) == 1) {
+			t.Errorf("Resolve(%q) ok = %v with %d commits", n, ok, len(hs))
+		}
+		if amb := g.Ambiguous(strings.ToUpper(string(n))); amb != (len(hs) > 1) {
+			t.Errorf("Ambiguous(%q) = %v with %d commits", n, amb, len(hs))
+		}
+	}
+	if g.Ambiguous(fix) || g.Ambiguous(fix[:12]) || g.Ambiguous("zz") {
+		t.Error("Ambiguous of one commit's id or of no id")
+	}
+}
+
 // sortByKey orders like a stable sort by key, over every digit.
 func TestSortByKey(t *testing.T) {
 	keys := []uint64{3 << 48, 1, 3 << 48, 2, 1 << 16, 0, 1, 1<<48 | 1}
@@ -395,10 +429,13 @@ func TestBuild(t *testing.T) {
 	if c, ok := lookupOf(g, strings.ToUpper(k.m["fix"])); !ok || c.Hash != k.m["fix"] {
 		t.Errorf("upper-case lookup: %+v, %v", c, ok)
 	}
-	for _, h := range []string{k.other, k.m["fix"][:12], "nonsense"} {
+	for _, h := range []string{k.other, "nonsense"} {
 		if _, ok := lookupOf(g, h); ok {
 			t.Errorf("Lookup(%s) found a commit", h)
 		}
+	}
+	if c, ok := lookupOf(g, k.m["fix"][:12]); !ok || c.Hash != k.m["fix"] {
+		t.Errorf("abbreviated lookup: %+v, %v", c, ok)
 	}
 	if c := lookup(t, g, k.m["fix"]); c.Date <= lookup(t, g, k.m["add"]).Date {
 		t.Errorf("dates do not increase: %+v", c)
