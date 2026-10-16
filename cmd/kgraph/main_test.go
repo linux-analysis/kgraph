@@ -30,6 +30,12 @@ func capture(t *testing.T, args ...string) (string, int) {
 	return out.String() + errOut.String(), code
 }
 
+func TestVersion(t *testing.T) {
+	if out, code := capture(t, "--version"); code != 0 || out != "kgraph dev\n" {
+		t.Errorf("--version = %q, %d", out, code)
+	}
+}
+
 // release names the release of each tag or version, and fails on one that
 // is none; a directory that is no repository is said to be so.
 func TestRelease(t *testing.T) {

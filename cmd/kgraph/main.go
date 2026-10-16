@@ -57,9 +57,12 @@ by its copy in the earliest release.
 flags:
 `
 
+// version is what the build stamps with -X main.version.
+var version = "dev"
+
 type opts struct {
-	tree, cache   string
-	json, adapted bool
+	tree, cache            string
+	json, adapted, version bool
 }
 
 func main() {
@@ -74,6 +77,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
+	fs.BoolVar(&o.version, "version", false, "print the version and exit")
 	fs.Usage = func() {
 		fmt.Fprint(stderr, usage)
 		fs.PrintDefaults()
@@ -98,6 +102,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			break
 		}
 		rest = fs.Args()
+	}
+	if o.version {
+		fmt.Fprintln(stdout, "kgraph", version)
+		return 0
 	}
 	if cmd == "" {
 		fs.Usage()
