@@ -1,10 +1,19 @@
 package kgraph
 
-import (
-	"slices"
+import "slices"
 
-	"github.com/linux-analysis/kgraph/kernel"
-)
+// Presence is whether a stable series has a patch, and where.
+type Presence struct {
+	Series string `json:"series"` // a stable series such as 6.6
+	// Tag is the release of the series that has had the patch since: the
+	// series' base release when the series branched with it, else the
+	// first tag of the earliest backport, or revert of its revert, that
+	// still carries it; "" when the series lacks it.
+	Tag string `json:"tag,omitempty"`
+	// Commit is the earliest commit that still carries the patch: a copy,
+	// a backport, or a revert of its revert; "" when the series lacks it.
+	Commit string `json:"commit,omitempty"`
+}
 
 // step is a commit that applies a patch or undoes it, with the commit it
 // undoes, or none.
@@ -56,22 +65,32 @@ func (g *Graph) timeline(c uint32) []step {
 	return steps
 }
 
-// replay plays the steps that the stable series that branches from
-// release series has, in order, and tells which steps carry the patch at
-// the end, oldest first. A step that applies the patch carries it. One
-// that undoes a carrier takes out that carrier, and those a merge made one
-// change with it before the undo: the carriers it descends from that are
-// apart from the line of the one it undoes. So a series that picked the
-// patch twice and reverted the second pick still has the first, while a
-// revert of one copy in mainline takes out both. One that undoes any
-// other commit takes out every carrier.
-func (g *Graph) replay(steps []step, series kernel.Release) (carriers []int) {
+// state is where a target stands with a patch.
+type state uint8
+
+const (
+	absent   state = iota // it never had the patch
+	present               // it has the patch
+	reverted              // it had the patch and reverted it
+)
+
+// replay plays the steps that target t has, in order, and tells where t
+// stands with the patch at the end and which steps carry it then, oldest
+// first. A step that applies the patch carries it. One that undoes a
+// carrier takes out that carrier, and those a merge made one change with
+// it before the undo: the carriers it descends from that are apart from
+// the line of the one it undoes. So a series that picked the patch twice
+// and reverted the second pick still has the first, while a revert of
+// one copy in mainline takes out both. One that undoes any other commit
+// takes out every carrier.
+func (g *Graph) replay(steps []step, t Target) (st state, carriers []int) {
+	had := false
 	for k, s := range steps {
-		if !g.has(series, s.commit) {
+		if !g.has(t, s.commit) {
 			continue
 		}
 		if s.apply {
-			carriers = append(carriers, k)
+			carriers, had = append(carriers, k), true
 			continue
 		}
 		y := uint32(s.undoes)
@@ -84,7 +103,36 @@ func (g *Graph) replay(steps []step, series kernel.Release) (carriers []int) {
 			return c == y || g.ancestor(c, s.commit) && !g.ancestor(c, y) && !g.ancestor(y, c)
 		})
 	}
-	return carriers
+	switch {
+	case len(carriers) > 0:
+		return present, carriers
+	case had:
+		return reverted, nil
+	}
+	return absent, nil
+}
+
+// In tells for each of ts, stable series, whether it has the patch, as
+// replaying the timeline of the patch tells, and since when. A series has
+// the commits of its releases and of its base release.
+func (p Patch) In(ts []Target) []Presence {
+	g := p.g
+	steps := g.timeline(p.c)
+	out := make([]Presence, len(ts))
+	for i, t := range ts {
+		out[i].Series = t.Name
+		st, carriers := g.replay(steps, t)
+		if st != present {
+			continue
+		}
+		c := steps[carriers[0]].commit
+		out[i].Commit = g.hashes[c].String()
+		out[i].Tag = g.tags[g.firstTag[c]].Name
+		if !g.tags[g.firstTag[c]].Stable {
+			out[i].Tag = t.series.String()
+		}
+	}
+	return out
 }
 
 // Backports are the stable backports of the patch, in version order of
@@ -96,11 +144,11 @@ func (p Patch) Backports() []Commit {
 	steps := g.timeline(p.c)
 	var out []uint32
 	for _, b := range g.backports[g.bstart[p.c]:g.bstart[p.c+1]] {
-		series, ok := g.targetOf(b)
+		t, ok := g.targetOf(b)
 		if !ok {
 			continue // in no release yet
 		}
-		if slices.ContainsFunc(g.replay(steps, series), func(k int) bool { return steps[k].commit == b }) {
+		if _, carriers := g.replay(steps, t); slices.ContainsFunc(carriers, func(k int) bool { return steps[k].commit == b }) {
 			out = append(out, b)
 		}
 	}

@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"math/bits"
 	"sync"
-
-	"github.com/linux-analysis/kgraph/kernel"
 )
 
 // topology is where each commit is: the trees whose tips reach it, the
@@ -116,25 +114,23 @@ func (t *topology) treeOf(i uint32) string {
 	return ""
 }
 
-// has tells whether the stable series that branches from release series
-// has commit x: whether x is in one of the series' releases or in its base
-// release.
-func (t *topology) has(series kernel.Release, x uint32) bool {
-	if t.firstTag[x] == none {
+// has tells whether target t has commit x: whether x is in one of the
+// series' releases or in its base release.
+func (t *topology) has(tg Target, x uint32) bool {
+	if tg.series == 0 || t.firstTag[x] == none {
 		return false
 	}
 	tag := t.tags[t.firstTag[x]]
-	return tag.Stable && tag.Release == series || !tag.Stable && tag.Release <= series
+	return tag.Stable && tag.Release == tg.series || !tag.Stable && tag.Release <= tg.series
 }
 
-// targetOf is the stable series of a stable commit, by its tag: the
-// release the series branches from. ok is false for one in no release
-// yet.
-func (t *topology) targetOf(x uint32) (series kernel.Release, ok bool) {
+// targetOf is the stable series of a stable commit, by its tag. ok is
+// false for one in no release yet.
+func (t *topology) targetOf(x uint32) (tg Target, ok bool) {
 	if t.firstTag[x] == none {
-		return 0, false
+		return Target{}, false
 	}
-	return t.tags[t.firstTag[x]].Release, true
+	return Target{series: t.tags[t.firstTag[x]].Release}, true
 }
 
 // before orders commits as a branch applied them: by their first tags,

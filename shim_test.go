@@ -98,3 +98,14 @@ func revertedOf(g *Graph, h string) bool {
 	c, ok := g.Commit(h)
 	return ok && len(c.RevertedBy()) > 0
 }
+
+func inSeriesOf(g *Graph, h string, ts []Target) []Presence {
+	if p, ok := patchOf(g, h); ok {
+		return p.In(ts)
+	}
+	out := make([]Presence, len(ts))
+	for i, t := range ts {
+		out[i].Series = t.Name
+	}
+	return out
+}

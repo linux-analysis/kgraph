@@ -118,6 +118,29 @@ func (t Tag) Compare(u Tag) int {
 	return cmp.Or(cmp.Compare(t.Release, u.Release), cmp.Compare(final(t), final(u)), cmp.Compare(t.patch, u.patch))
 }
 
+// Stable is a stable series, such as 6.6; the series of 2.x kernels have
+// three numbers, as 2.6.32.
+type Stable struct {
+	Series string
+}
+
+// stableRe matches a stable series, with or without the v of a tag.
+var stableRe = regexp.MustCompile(`^v?(2\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+)$`)
+
+// ParseStable reads a stable series such as 6.6, v6.6 or 2.6.32. ok is
+// false for anything else, a release of a series such as 6.6.30 too, and a
+// series of no release, as 2.4.37.
+func ParseStable(s string) (st Stable, ok bool) {
+	m := stableRe.FindStringSubmatch(s)
+	if m == nil || ParseRelease("v"+m[1]) == 0 {
+		return Stable{}, false
+	}
+	return Stable{Series: m[1]}, true
+}
+
+// Release is the mainline release the series branches from.
+func (st Stable) Release() Release { return ParseRelease("v" + st.Series) }
+
 // ReleasesURL lists the releases kernel.org supports.
 const ReleasesURL = "https://www.kernel.org/releases.json"
 

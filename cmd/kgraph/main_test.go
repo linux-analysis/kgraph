@@ -149,6 +149,23 @@ func TestLookupAndFixes(t *testing.T) {
 	if _, code := captureIn(t, "", "--tree", dir, "lookup", "-"); code != 2 {
 		t.Errorf("lookup of an empty stdin exited %d, want 2", code)
 	}
+	out, code = capture(t, "--tree", dir, "--series", "6.1,v6.2", "where", fix[:12])
+	if code != 0 || !strings.Contains(out, fix+"\tmainline") || !strings.Contains(out, fix+"\t6.1\t-\t-\n") || !strings.Contains(out, fix+"\t6.2\tv6.2\t"+fix+"\n") {
+		t.Errorf("where = %q, %d", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "--series", "6.2", "--json", "where", "zz")
+	if code != 0 || !strings.Contains(out, `"found": false`) || strings.Contains(out, `"series"`) {
+		t.Errorf("where of an unknown prefix = %q, %d", out, code)
+	}
+	fresh := filepath.Join(t.TempDir(), "fresh.cache")
+	for _, series := range []string{"6.2,bogus", "6.2.1"} {
+		if _, code := capture(t, "--tree", dir, "--cache", fresh, "--series", series, "where", fix); code != 2 {
+			t.Errorf("where with --series %s exited %d, want 2", series, code)
+		}
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Errorf("where with a bad --series built the graph: %v", err)
+	}
 	out, code = captureIn(t, fix+"\n"+intro[:12]+" zz\n", "--tree", dir, "fixes", "-")
 	if code != 0 || !strings.Contains(out, fix+"\t"+intro+"\tmainline") || strings.Contains(out, "\n"+intro+"\t") ||
 		!strings.Contains(out, "zz\tis not a commit id") {

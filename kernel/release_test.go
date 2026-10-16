@@ -35,6 +35,26 @@ func TestParseRelease(t *testing.T) {
 	}
 }
 
+func TestParseStable(t *testing.T) {
+	for _, tc := range []struct {
+		in      string
+		series  string
+		release string
+	}{
+		{"6.6", "6.6", "v6.6"}, {"v6.6", "6.6", "v6.6"}, {"2.6.32", "2.6.32", "v2.6.32"},
+	} {
+		st, ok := ParseStable(tc.in)
+		if !ok || st.Series != tc.series || st.Release().String() != tc.release {
+			t.Errorf("ParseStable(%q) = %+v, %v; want %s %s", tc.in, st, ok, tc.series, tc.release)
+		}
+	}
+	for _, in := range []string{"", "6", "v6.6-rc1", "6.6.x", "six.six", "6.6.30", "v6.6.30", "2.6.32.71", "2.4.37", "2.4"} {
+		if st, ok := ParseStable(in); ok {
+			t.Errorf("ParseStable(%q) = %+v, want not ok", in, st)
+		}
+	}
+}
+
 func TestParseReleases(t *testing.T) {
 	body := `{"releases": [
 		{"moniker": "mainline", "version": "6.19-rc3", "iseol": false},

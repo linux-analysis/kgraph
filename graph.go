@@ -19,7 +19,7 @@
 //     descend from one another are copies when they change the same
 //     lines, which the store reads for them alone and the cache keeps.
 //   - The questions go through handles: a Commit, and its Patch, the change
-//     itself.
+//     itself, whose presence in a series one replay of its timeline tells.
 package kgraph
 
 import (
@@ -62,6 +62,8 @@ type Graph struct {
 	bstart    []uint32
 	fixedBy   []uint32 // patches under the patches their Fixes: tags name, oldest first
 	fbstart   []uint32
+
+	layout *Layout
 }
 
 // Options tune a build.
@@ -106,7 +108,7 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Graph{store: s, topology: newTopology(s, l)}
+	g := &Graph{store: s, topology: newTopology(s, l), layout: l}
 	p := newPass(s, &g.topology)
 	twins := findTwins(p)
 	read, err := s.readLines(ctx, l.dir, onALine(twins))

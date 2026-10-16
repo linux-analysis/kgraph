@@ -1,9 +1,10 @@
 // Command kgraph answers questions about the commits of a Linux kernel
 // tree from its commit graph: the first release that contains a commit,
 // the stable backports of a mainline commit, the commits a Fixes: tag
-// names and the later fixes of a commit, its twins and its reverts. It
-// also reads the release tags and the stable series kernel.org supports.
-// It never changes the tree: fetching is up to its owner.
+// names and the later fixes of a commit, its twins and its reverts, and
+// whether each stable series has it. It also reads the release tags and
+// the stable series kernel.org supports. It never changes the tree:
+// fetching is up to its owner.
 package main
 
 import (
@@ -38,6 +39,8 @@ Flags may also follow the command; after --, every argument is one.
 commands:
   build                  build the graph and write its cache
   lookup HASH...         tree, tag, release, series, upstream and date
+  where HASH...          whether each stable series has it,
+                         and since which release
   fixes HASH...          the commits its Fixes: tags name
   fixed-by HASH...       the later commits whose Fixes: tags name it, in any tree
   backports HASH...      its stable backports; with --adapted, marked when
@@ -66,7 +69,7 @@ flags:
 var version = "dev"
 
 type opts struct {
-	tree, cache            string
+	tree, cache, series    string
 	json, adapted, version bool
 }
 
@@ -81,6 +84,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.tree, "tree", ".", "git repository of the kernel tree, a checkout or a bare clone")
 	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones (default: one per tree under the user cache directory)")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
+	fs.StringVar(&o.series, "series", "", "where: the stable series to answer for, comma-separated, such as 6.6,6.1 (default: the series kernel.org supports)")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
 	fs.Usage = func() {
@@ -145,7 +149,7 @@ func dispatch(ctx context.Context, o opts, cmd string, args []string, in io.Read
 		return release(o, args, out)
 	case "series":
 		return series(ctx, o, out)
-	case "tags", "remotes", "build", "lookup", "reverts":
+	case "tags", "remotes", "build", "lookup", "where", "reverts":
 	default:
 		if relations[cmd] == nil {
 			return fmt.Errorf("%w: unknown command %q", errUsage, cmd)
@@ -162,7 +166,7 @@ func dispatch(ctx context.Context, o opts, cmd string, args []string, in io.Read
 	case "build":
 		_, err := build(ctx, o, log)
 		return err
-	case "lookup", "reverts":
+	case "lookup", "where", "reverts":
 		return query(ctx, o, cmd, args, in, out, log)
 	}
 	return query(ctx, o, cmd, args, in, out, log)
@@ -302,6 +306,29 @@ func (r commitRow) String() string {
 	return strings.Join(parts, "\t")
 }
 
+// whereRow is what where prints for a commit: its lookup row and whether
+// each series has it.
+type whereRow struct {
+	commitRow
+	Series []kgraph.Presence `json:"series,omitempty"`
+}
+
+// print writes the lookup row and one line per series: the first release
+// of the series that has the commit and the commit it has, or dashes.
+func (r whereRow) print(out io.Writer) {
+	fmt.Fprintln(out, r.commitRow)
+	for _, p := range r.Series {
+		tag, commit := p.Tag, p.Commit
+		if commit == "" {
+			commit = "-"
+		}
+		if tag == "" {
+			tag = "-"
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", r.Hash, p.Series, tag, commit)
+	}
+}
+
 // backportRow is one backport with whether it was adapted, when asked.
 type backportRow struct {
 	commitRow
@@ -415,6 +442,18 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 	if err != nil {
 		return err
 	}
+	// The series are checked against the layout before the build, which
+	// reads every commit when there is no cache.
+	var targets []kgraph.Target
+	if cmd == "where" {
+		names, err := seriesNames(ctx, o)
+		if err != nil {
+			return err
+		}
+		if targets, err = l.Targets(names); err != nil {
+			return fmt.Errorf("%w: %v", errUsage, err)
+		}
+	}
 	g, err := l.Build(ctx, log)
 	if err != nil {
 		return err
@@ -435,6 +474,19 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 		return print(out, o, rows, func() {
 			for _, r := range rows {
 				fmt.Fprintln(out, r)
+			}
+		})
+	case "where":
+		rows := make([]whereRow, len(args))
+		for i, c := range commits {
+			rows[i].commitRow = commitRow{asked: asks[i]}
+			if asks[i].Found {
+				rows[i] = whereRow{row(c), c.Patch().In(targets)}
+			}
+		}
+		return print(out, o, rows, func() {
+			for _, r := range rows {
+				r.print(out)
 			}
 		})
 	case "reverts":
@@ -571,6 +623,26 @@ func remotes(ctx context.Context, o opts, out io.Writer) error {
 	return print(out, o, rem, func() {
 		fmt.Fprintf(out, "mainline: %s\nstable: %s\n", rem.Mainline, rem.Stable)
 	})
+}
+
+// seriesNames are the series and trees of --series, or the series
+// kernel.org supports; query checks them against the graph once built.
+func seriesNames(ctx context.Context, o opts) ([]string, error) {
+	var names []string
+	if o.series == "" {
+		ss, err := supportedSeries(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range ss {
+			names = append(names, s.Name)
+		}
+		return names, nil
+	}
+	for _, s := range strings.Split(o.series, ",") {
+		names = append(names, strings.TrimSpace(s))
+	}
+	return names, nil
 }
 
 func series(ctx context.Context, o opts, out io.Writer) error {

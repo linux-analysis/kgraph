@@ -142,6 +142,16 @@ func buildTree(ctx context.Context, dir string, rem kernel.Remotes, o Options, l
 	return l.Build(ctx, log)
 }
 
+// targets reads names as the targets of g.
+func targets(t *testing.T, g *Graph, names ...string) []Target {
+	t.Helper()
+	ts, err := g.layout.Targets(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ts
+}
+
 func lookup(t *testing.T, g *Graph, h string) info {
 	t.Helper()
 	c, ok := lookupOf(g, h)
@@ -582,6 +592,9 @@ func TestTwinsOnOneLine(t *testing.T) {
 		}
 		if got := copiesOf(g, again); !slices.Equal(got, []string{fix, again}) {
 			t.Errorf("Copies(again) = %v, want [%s %s]", got, fix, again)
+		}
+		if got := inSeriesOf(g, fix, targets(t, g, "6.2")); got[0].Commit != again {
+			t.Errorf("InSeries(fix) = %v, want it through %s", got, again)
 		}
 	}
 }

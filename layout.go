@@ -116,6 +116,26 @@ func (l *Layout) Tags() []kernel.Tag {
 	return tags
 }
 
+// Target is what In answers for: a stable series, such as 6.6.
+type Target struct {
+	Name   string
+	series kernel.Release // the release the series branches from
+}
+
+// Targets reads names as stable series, such as 6.6 or v6.6, and fails on
+// any other name, a release such as 6.6.30 too.
+func (l *Layout) Targets(names []string) ([]Target, error) {
+	ts := make([]Target, len(names))
+	for i, name := range names {
+		st, ok := kernel.ParseStable(name)
+		if !ok {
+			return nil, fmt.Errorf("%q is not a stable series", name)
+		}
+		ts[i] = Target{Name: st.Series, series: st.Release()}
+	}
+	return ts, nil
+}
+
 // tipOf resolves ref to the commit it names.
 func tipOf(ctx context.Context, dir, ref string) (hash, error) {
 	out, err := git.Run(ctx, dir, nil, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
