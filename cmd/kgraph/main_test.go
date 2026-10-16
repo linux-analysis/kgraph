@@ -25,8 +25,14 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 
 func capture(t *testing.T, args ...string) (string, int) {
 	t.Helper()
+	return captureIn(t, "", args...)
+}
+
+// captureIn runs kgraph with stdin as its standard input.
+func captureIn(t *testing.T, stdin string, args ...string) (string, int) {
+	t.Helper()
 	var out, errOut bytes.Buffer
-	code := run(args, &out, &errOut)
+	code := run(args, strings.NewReader(stdin), &out, &errOut)
 	return out.String() + errOut.String(), code
 }
 
@@ -117,10 +123,18 @@ func TestLookupAndFixes(t *testing.T) {
 	if code != 0 || !strings.Contains(out, fix+"\tmainline") || !strings.Contains(out, "zz\tis not a commit id") {
 		t.Errorf("lookup by prefix = %q, %d", out, code)
 	}
-	out, code = capture(t, "--tree", dir, "fixes", fix, intro[:12], "zz")
+	out, code = captureIn(t, fix[:12]+"\n"+intro+" zz\n", "--tree", dir, "lookup", "-")
+	if code != 0 || strings.Count(out, fix+"\t") != 1 || !strings.Contains(out, fix+"\tmainline") || !strings.Contains(out, intro+"\tmainline") ||
+		!strings.Contains(out, "zz\tis not a commit id") {
+		t.Errorf("lookup from stdin = %q, %d", out, code)
+	}
+	if _, code := captureIn(t, "", "--tree", dir, "lookup", "-"); code != 2 {
+		t.Errorf("lookup of an empty stdin exited %d, want 2", code)
+	}
+	out, code = captureIn(t, fix+"\n"+intro[:12]+" zz\n", "--tree", dir, "fixes", "-")
 	if code != 0 || !strings.Contains(out, fix+"\t"+intro+"\tmainline") || strings.Contains(out, "\n"+intro+"\t") ||
 		!strings.Contains(out, "zz\tis not a commit id") {
-		t.Errorf("fixes of several commits = %q, %d", out, code)
+		t.Errorf("fixes from stdin = %q, %d", out, code)
 	}
 	if out, code := capture(t, "--tree", dir, "backports", strings.Repeat("0", 40)); code != 0 || !strings.Contains(out, "names no commit") {
 		t.Errorf("backports of a missing commit = %q, %d", out, code)
@@ -141,7 +155,12 @@ func TestLookupAndFixes(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"missing": "not-an-id"`) || !strings.Contains(out, `"missing": "not-in-graph"`) || strings.Count(out, `"reverted"`) != 1 {
 		t.Errorf("reverts of misses as JSON = %q, %d", out, code)
 	}
-	// Flags may follow the command.
+	// - reads standard input in its place among other hashes, and flags may
+	// follow the command.
+	out, code = captureIn(t, fix+"\n", "--tree", dir, "lookup", intro, "-")
+	if code != 0 || !strings.Contains(out, intro+"\tmainline") || !strings.Contains(out, fix+"\tmainline") {
+		t.Errorf("lookup of a hash and - = %q, %d", out, code)
+	}
 	out, code = capture(t, "--tree", dir, "lookup", "--json", fix)
 	if code != 0 || !strings.Contains(out, `"hash": "`+fix+`"`) {
 		t.Errorf("lookup --json after the command = %q, %d", out, code)

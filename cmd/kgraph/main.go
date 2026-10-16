@@ -47,13 +47,14 @@ commands:
   remotes                the mainline and stable remotes
   series                 the stable series kernel.org supports
 
-Any hash may be abbreviated. Each line of an answer starts with the hash
-asked about, and for a hash the graph has no commit for, says why: it is
-not a commit id, names several commits, names a commit that no branch or
-tag the graph reads reaches, or names none. But for lookup and reverts,
-the answers are about the commit's patch: a backport stands for its
-upstream, a copy for every copy, and a patch goes by its copy in the
-earliest release.
+A HASH may be -, which reads hashes from standard input in its place,
+separated by blanks or line breaks. Any hash may be abbreviated. Each
+line of an answer starts with the hash asked about, and for a hash the
+graph has no commit for, says why: it is not a commit id, names several
+commits, names a commit that no branch or tag the graph reads reaches,
+or names none. But for lookup and reverts, the answers are about the
+commit's patch: a backport stands for its upstream, a copy for every
+copy, and a patch goes by its copy in the earliest release.
 
 flags:
 `
@@ -67,10 +68,10 @@ type opts struct {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var o opts
 	fs := flag.NewFlagSet("kgraph", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -115,7 +116,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	log := slog.New(slog.NewTextHandler(stderr, nil))
-	err := dispatch(ctx, o, cmd, cmdArgs, stdout, log)
+	err := dispatch(ctx, o, cmd, cmdArgs, stdin, stdout, log)
 	switch {
 	case errors.Is(err, errUsage):
 		fmt.Fprintln(stderr, "kgraph:", err)
@@ -129,7 +130,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 var errUsage = errors.New("usage")
 
-func dispatch(ctx context.Context, o opts, cmd string, args []string, out io.Writer, log *slog.Logger) error {
+func dispatch(ctx context.Context, o opts, cmd string, args []string, in io.Reader, out io.Writer, log *slog.Logger) error {
 	switch cmd {
 	case "release":
 		return release(o, args, out)
@@ -156,7 +157,7 @@ func dispatch(ctx context.Context, o opts, cmd string, args []string, out io.Wri
 		_, err := build(ctx, o, log)
 		return err
 	}
-	return query(ctx, o, cmd, args, out, log)
+	return query(ctx, o, cmd, args, in, out, log)
 }
 
 // checkTree tells whether --tree is a git repository and --cache no
@@ -272,6 +273,28 @@ type backportRow struct {
 	Adapted *bool `json:"adapted,omitempty"`
 }
 
+// hashes returns args with each - in them replaced by the blank-separated
+// words of in, which is read once.
+func hashes(args []string, in io.Reader) ([]string, error) {
+	if !slices.Contains(args, "-") {
+		return args, nil
+	}
+	b, err := io.ReadAll(in)
+	if err != nil {
+		return nil, fmt.Errorf("read standard input: %w", err)
+	}
+	words := strings.Fields(string(b))
+	var out []string
+	for _, a := range args {
+		if a == "-" {
+			out, words = append(out, words...), nil
+		} else {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
 // lookups finds the commit of each hash of args and tells, for those the
 // graph has no commit for, why: not a hex id, the prefix of several
 // commits, a commit git has and no branch or tag the graph reads reaches,
@@ -345,7 +368,11 @@ type relatedRow struct {
 	Commits []backportRow `json:"commits,omitempty"`
 }
 
-func query(ctx context.Context, o opts, cmd string, args []string, out io.Writer, log *slog.Logger) error {
+func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader, out io.Writer, log *slog.Logger) error {
+	args, err := hashes(args, in)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		return fmt.Errorf("%w: %s takes commit hashes", errUsage, cmd)
 	}
