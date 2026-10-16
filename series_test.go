@@ -1,6 +1,7 @@
 package kgraph
 
 import (
+	"reflect"
 	"slices"
 	"testing"
 
@@ -40,6 +41,59 @@ func TestInSeries(t *testing.T) {
 	}
 	if ts, err := g.layout.Targets([]string{"6.0", "bogus"}); err == nil {
 		t.Errorf("Targets(bogus) = %v, want an error", ts)
+	}
+}
+
+// The follow-ups of a commit are the mainline commits whose Fixes: tags
+// name its patch, listed with the series that have the patch but lack
+// them: not a follow-up some commit reverts, nor one every such series
+// has; a stable commit stands for its patch, and one no series has has
+// none.
+func TestFollowups(t *testing.T) {
+	k := newKernel(t)
+	g := build(t, k.dir, remotes)
+	series := targets(t, g, "6.0", "5.15", "v6.1")
+	for name, want := range map[string][]followup{
+		// The fix is in 5.15 and 6.1 (6.0 reverted its backport); arm: fix
+		// baz names it and has only an untagged backport.
+		k.m["fix"]: {{Hash: k.m["late"], Series: []string{"5.15", "6.1"}}},
+		// net: fix foo was reverted; mm: fix bar is wherever net: add foo is.
+		k.m["add"]:    nil,
+		k.m["init"]:   {{Hash: k.m["bar"], Series: []string{"5.15"}}},
+		k.s["fix515"]: {{Hash: k.m["late"], Series: []string{"5.15", "6.1"}}},
+		k.m["twin1"]:  nil,
+		k.m["tip"]:    nil,
+	} {
+		if got := followupsOf(g, name, series); !reflect.DeepEqual(got, want) {
+			t.Errorf("Followups(%s) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// A fix one series reverted is still a follow-up for another series that
+// has the commit and never had the fix; mainline reverting it would make
+// it none. The series that reverted the backport has no backport.
+func TestFollowupsRevertedElsewhere(t *testing.T) {
+	r := newRepo(t)
+	x := r.commit("net: add foo")
+	r.git("tag", "v5.0")
+	r.commit("net: tidy")
+	r.git("tag", "v5.1")
+	fix := r.commit("net: fix foo\n\nFixes: " + x[:12])
+	r.git("tag", "v5.2-rc1")
+	r.git("checkout", "-q", "-b", "linux-5.0.y", "v5.0")
+	backport := r.commit("net: fix foo\n\ncommit " + fix + " upstream.")
+	r.git("tag", "v5.0.1")
+	r.commit("Revert \"net: fix foo\"\n\nThis reverts commit " + fix + ".")
+	r.git("tag", "v5.0.2")
+	r.git("checkout", "-q", "master")
+	g := build(t, r.dir, kernel.Remotes{})
+	got := followupsOf(g, x, targets(t, g, "5.0", "5.1"))
+	if want := []followup{{fix, []string{"5.1"}}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Followups = %v, want %v", got, want)
+	}
+	if got := backportsOf(g, fix); got != nil {
+		t.Errorf("Backports = %v, want none: 5.0 reverted %s", got, backport)
 	}
 }
 

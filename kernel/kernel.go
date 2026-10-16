@@ -1,9 +1,9 @@
 // Package kernel is the Linux kernel tree as the commit graph reads it:
 // an existing clone, bare or not, with its mainline and stable remotes,
-// the release tags and the stable series, and the diffs of its commits.
-// It never clones or fetches the tree: keeping it up to date is the
-// caller's job. It drives the git command line through kgraph/internal/git
-// and depends on the standard library only.
+// the release tags and the stable series, and the subjects and diffs of
+// its commits. It never clones or fetches the tree: keeping it up
+// to date is the caller's job. It drives the git command line through
+// kgraph/internal/git and depends on the standard library only.
 package kernel
 
 import (

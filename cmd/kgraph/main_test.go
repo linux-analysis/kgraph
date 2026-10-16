@@ -166,6 +166,15 @@ func TestLookupAndFixes(t *testing.T) {
 	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
 		t.Errorf("where with a bad --series built the graph: %v", err)
 	}
+	out, code = capture(t, "--tree", dir, "--series", "6.1,6.2", "followups", intro[:12], fix, "zz")
+	if code != 0 || !strings.Contains(out, intro+"\t"+fix+"\t6.1\tv6.2-rc1\ta: fix\n") || strings.Contains(out, fix+"\t"+fix) ||
+		!strings.Contains(out, "zz\tis not a commit id") {
+		t.Errorf("followups = %q, %d", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "--series", "6.1", "--json", "followups", fix, "zz")
+	if code != 0 || !strings.Contains(out, `"found": true`) || !strings.Contains(out, `"found": false`) || strings.Contains(out, `"followups"`) {
+		t.Errorf("followups as JSON = %q, %d", out, code)
+	}
 	out, code = captureIn(t, fix+"\n"+intro[:12]+" zz\n", "--tree", dir, "fixes", "-")
 	if code != 0 || !strings.Contains(out, fix+"\t"+intro+"\tmainline") || strings.Contains(out, "\n"+intro+"\t") ||
 		!strings.Contains(out, "zz\tis not a commit id") {
@@ -205,6 +214,10 @@ func TestLookupAndFixes(t *testing.T) {
 	}
 	if out, _ := capture(t, "--tree", dir, "lookup", "--", "--json"); !strings.Contains(out, "--json\tis not a commit id") {
 		t.Errorf("an argument after -- = %q", out)
+	}
+	// followups names the hash asked about as every command does.
+	if out, _ := capture(t, "--tree", dir, "--series", "6.1", "--json", "followups", intro); !strings.Contains(out, `"hash": "`+intro+`"`) || strings.Contains(out, `"fix"`) {
+		t.Errorf("followups as JSON = %q", out)
 	}
 	// A --cache that is a directory is a usage error.
 	if out, code := capture(t, "--tree", dir, "--cache", t.TempDir(), "lookup", fix); code != 2 || !strings.Contains(out, "is a directory") {

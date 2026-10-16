@@ -114,9 +114,12 @@ func (t *topology) treeOf(i uint32) string {
 	return ""
 }
 
-// has tells whether target t has commit x: whether x is in one of the
-// series' releases or in its base release.
+// has tells whether target t has commit x: a tree when its tips reach x, a
+// stable series when x is in one of its releases or in its base release.
 func (t *topology) has(tg Target, x uint32) bool {
+	if tg.tree >= 0 {
+		return t.reach[x]&(1<<tg.tree) != 0
+	}
 	if tg.series == 0 || t.firstTag[x] == none {
 		return false
 	}
@@ -130,7 +133,7 @@ func (t *topology) targetOf(x uint32) (tg Target, ok bool) {
 	if t.firstTag[x] == none {
 		return Target{}, false
 	}
-	return Target{series: t.tags[t.firstTag[x]].Release}, true
+	return Target{series: t.tags[t.firstTag[x]].Release, tree: -1}, true
 }
 
 // before orders commits as a branch applied them: by their first tags,

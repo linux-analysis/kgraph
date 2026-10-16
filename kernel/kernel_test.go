@@ -3,6 +3,7 @@ package kernel
 import (
 	"bytes"
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,6 +90,23 @@ func TestPresentCommits(t *testing.T) {
 	}
 	if got, err := presentCommits(ctx, fx.dir, nil); err != nil || len(got) != 0 {
 		t.Errorf("empty input: %v %v", got, err)
+	}
+}
+
+func TestSubjects(t *testing.T) {
+	fx := newFixture(t)
+	gitRun(t, fx.dir, "commit", "-q", "--allow-empty", "-m", "net: a subject\nthat folds\n\nand a body")
+	folded := gitRun(t, fx.dir, "rev-parse", "HEAD")
+	got, err := Subjects(ctx, fx.dir, []string{fx.c2, fx.c1, "ffffffffffffffffffffffffffffffffffffffff", fx.c2, folded})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{fx.c1: "Initial commit", fx.c2: "net: fix leak in foo", folded: "net: a subject that folds"}
+	if !maps.Equal(got, want) {
+		t.Errorf("Subjects = %q, want %q", got, want)
+	}
+	if s, err := Subjects(ctx, fx.dir, nil); err != nil || len(s) != 0 {
+		t.Errorf("empty: %v %v", s, err)
 	}
 }
 

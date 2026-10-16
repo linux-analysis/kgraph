@@ -127,9 +127,11 @@ func (p Patch) In(ts []Target) []Presence {
 		}
 		c := steps[carriers[0]].commit
 		out[i].Commit = g.hashes[c].String()
-		out[i].Tag = g.tags[g.firstTag[c]].Name
-		if !g.tags[g.firstTag[c]].Stable {
-			out[i].Tag = t.series.String()
+		if t.tree < 0 {
+			out[i].Tag = g.tags[g.firstTag[c]].Name
+			if !g.tags[g.firstTag[c]].Stable {
+				out[i].Tag = t.series.String()
+			}
 		}
 	}
 	return out
@@ -153,4 +155,66 @@ func (p Patch) Backports() []Commit {
 		}
 	}
 	return g.commits(out)
+}
+
+// Related is a later fix of a patch, with the series that lack it.
+type Related struct {
+	Patch  Patch
+	Series []string
+}
+
+// Followups lists the follow-up fixes of the patch, the patches with a
+// commit whose Fixes: tags name it, with the series of ts that have the
+// patch and never had the fix. A fix that reverts the patch is none, nor
+// is one that mainline reverted; a series that reverted the fix does not
+// lack it.
+func (p Patch) Followups(ts []Target) []Related {
+	g := p.g
+	var have []Target
+	for i, pr := range p.In(ts) {
+		if pr.Commit != "" {
+			have = append(have, ts[i])
+		}
+	}
+	if len(have) == 0 {
+		return nil
+	}
+	mainline := Target{Name: "mainline", tree: 0}
+	var out []Related
+	for _, f := range p.FixedBy() {
+		if g.revertsPatch(f.c, p.c) {
+			continue
+		}
+		steps := g.timeline(f.c)
+		if st, _ := g.replay(steps, mainline); st == reverted {
+			continue
+		}
+		if lack := g.lacking(steps, have, func(st state) bool { return st == absent }); lack != nil {
+			out = append(out, Related{f, lack})
+		}
+	}
+	return out
+}
+
+// revertsPatch tells whether a copy of patch f reverts a commit of patch
+// c.
+func (g *Graph) revertsPatch(f, c uint32) bool {
+	for _, m := range g.members[g.mstart[f]:g.mstart[f+1]] {
+		if r := g.revert[m]; r != none && g.of[r] == c {
+			return true
+		}
+	}
+	return false
+}
+
+// lacking names the targets of ts where the patch of steps stands as lacks
+// says.
+func (g *Graph) lacking(steps []step, ts []Target, lacks func(state) bool) []string {
+	var out []string
+	for _, t := range ts {
+		if st, _ := g.replay(steps, t); lacks(st) {
+			out = append(out, t.Name)
+		}
+	}
+	return out
 }

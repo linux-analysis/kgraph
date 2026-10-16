@@ -116,10 +116,11 @@ func (l *Layout) Tags() []kernel.Tag {
 	return tags
 }
 
-// Target is what In answers for: a stable series, such as 6.6.
+// Target is what In answers for: a stable series, such as 6.6, or a tree.
 type Target struct {
 	Name   string
-	series kernel.Release // the release the series branches from
+	series kernel.Release // the release a stable series branches from
+	tree   int            // the index of a tree, or -1 for a stable series
 }
 
 // Targets reads names as stable series, such as 6.6 or v6.6, and fails on
@@ -131,7 +132,7 @@ func (l *Layout) Targets(names []string) ([]Target, error) {
 		if !ok {
 			return nil, fmt.Errorf("%q is not a stable series", name)
 		}
-		ts[i] = Target{Name: st.Series, series: st.Release()}
+		ts[i] = Target{Name: st.Series, series: st.Release(), tree: -1}
 	}
 	return ts, nil
 }

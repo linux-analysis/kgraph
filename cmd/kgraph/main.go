@@ -41,6 +41,7 @@ commands:
   lookup HASH...         tree, tag, release, series, upstream and date
   where HASH...          whether each stable series has it,
                          and since which release
+  followups HASH...      its later fixes that a series or branch with it lacks
   fixes HASH...          the commits its Fixes: tags name
   fixed-by HASH...       the later commits whose Fixes: tags name it, in any tree
   backports HASH...      its stable backports; with --adapted, marked when
@@ -84,7 +85,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.tree, "tree", ".", "git repository of the kernel tree, a checkout or a bare clone")
 	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones (default: one per tree under the user cache directory)")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
-	fs.StringVar(&o.series, "series", "", "where: the stable series to answer for, comma-separated, such as 6.6,6.1 (default: the series kernel.org supports)")
+	fs.StringVar(&o.series, "series", "", "where, followups: the stable series to answer for, comma-separated, such as 6.6,6.1 (default: the series kernel.org supports)")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
 	fs.Usage = func() {
@@ -149,7 +150,7 @@ func dispatch(ctx context.Context, o opts, cmd string, args []string, in io.Read
 		return release(o, args, out)
 	case "series":
 		return series(ctx, o, out)
-	case "tags", "remotes", "build", "lookup", "where", "reverts":
+	case "tags", "remotes", "build", "lookup", "where", "followups", "reverts":
 	default:
 		if relations[cmd] == nil {
 			return fmt.Errorf("%w: unknown command %q", errUsage, cmd)
@@ -166,8 +167,6 @@ func dispatch(ctx context.Context, o opts, cmd string, args []string, in io.Read
 	case "build":
 		_, err := build(ctx, o, log)
 		return err
-	case "lookup", "where", "reverts":
-		return query(ctx, o, cmd, args, in, out, log)
 	}
 	return query(ctx, o, cmd, args, in, out, log)
 }
@@ -329,6 +328,39 @@ func (r whereRow) print(out io.Writer) {
 	}
 }
 
+// followupsRow is what followups prints for a commit: its follow-up fixes
+// that some series lack.
+type followupsRow struct {
+	asked
+	Followups []followupRow `json:"followups,omitempty"`
+}
+
+type followupRow struct {
+	Hash    string   `json:"hash"`
+	Series  []string `json:"series"`
+	Tag     string   `json:"tag,omitempty"`
+	Tree    string   `json:"tree,omitempty"`
+	Date    int64    `json:"date,omitempty"`
+	Subject string   `json:"subject,omitempty"`
+}
+
+// print writes one line per follow-up: the commit, the follow-up, the
+// series that lack it, its tag or its tree when no release has it yet,
+// and its subject.
+func (r followupsRow) print(out io.Writer) {
+	if !r.Found {
+		fmt.Fprintln(out, r.asked)
+		return
+	}
+	for _, f := range r.Followups {
+		tag := f.Tag
+		if tag == "" {
+			tag = f.Tree
+		}
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\n", r.Hash, f.Hash, strings.Join(f.Series, ","), tag, f.Subject)
+	}
+}
+
 // backportRow is one backport with whether it was adapted, when asked.
 type backportRow struct {
 	commitRow
@@ -445,7 +477,7 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 	// The series are checked against the layout before the build, which
 	// reads every commit when there is no cache.
 	var targets []kgraph.Target
-	if cmd == "where" {
+	if cmd == "where" || cmd == "followups" {
 		names, err := seriesNames(ctx, o)
 		if err != nil {
 			return err
@@ -489,6 +521,8 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 				r.print(out)
 			}
 		})
+	case "followups":
+		return followups(ctx, o, commits, asks, targets, out)
 	case "reverts":
 		type revertsRow struct {
 			asked
@@ -558,6 +592,41 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 				}
 				fmt.Fprintln(out, line)
 			}
+		}
+	})
+}
+
+// followups answers followups: the later fixes of each commit's patch that
+// some of targets lack, each by its canonical copy with the subject of
+// that.
+func followups(ctx context.Context, o opts, commits []kgraph.Commit, asks []asked, targets []kgraph.Target, out io.Writer) error {
+	rows, lists := make([]followupsRow, len(commits)), make([][]kgraph.Related, len(commits))
+	var all []string
+	for i, c := range commits {
+		rows[i].asked = asks[i]
+		if !asks[i].Found {
+			continue
+		}
+		lists[i] = c.Patch().Followups(targets)
+		for _, f := range lists[i] {
+			all = append(all, f.Patch.Commit().Hash())
+		}
+	}
+	subjects, err := kernel.Subjects(ctx, o.tree, all)
+	if err != nil {
+		return err
+	}
+	for i, list := range lists {
+		var fs []followupRow
+		for _, f := range list {
+			c := f.Patch.Commit()
+			fs = append(fs, followupRow{Hash: c.Hash(), Series: f.Series, Tag: c.Tag(), Tree: c.Tree(), Date: c.Date(), Subject: subjects[c.Hash()]})
+		}
+		rows[i].Followups = fs
+	}
+	return print(out, o, rows, func() {
+		for _, r := range rows {
+			r.print(out)
 		}
 	})
 }

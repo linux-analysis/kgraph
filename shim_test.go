@@ -109,3 +109,21 @@ func inSeriesOf(g *Graph, h string, ts []Target) []Presence {
 	}
 	return out
 }
+
+// followup is a Related by its canonical copy.
+type followup struct {
+	Hash   string
+	Series []string
+}
+
+func followupsOf(g *Graph, h string, ts []Target) []followup {
+	return related(g, h, func(p Patch) []followup { return asFollowups(p.Followups(ts)) })
+}
+
+func asFollowups(rs []Related) []followup {
+	var out []followup
+	for _, r := range rs {
+		out = append(out, followup{r.Patch.Commit().Hash(), r.Series})
+	}
+	return out
+}
