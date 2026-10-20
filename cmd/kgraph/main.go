@@ -70,8 +70,8 @@ flags:
 var version = "dev"
 
 type opts struct {
-	tree, cache, series    string
-	json, adapted, version bool
+	tree, cache, fixes, series string
+	json, adapted, version     bool
 }
 
 func main() {
@@ -84,6 +84,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.StringVar(&o.tree, "tree", ".", "git repository of the kernel tree, a checkout or a bare clone")
 	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones (default: one per tree under the user cache directory)")
+	fs.StringVar(&o.fixes, "fixes", "", "file of Fixes: ids that name no commit and the commits they mean, such as fixes.txt of the kgraph source")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
 	fs.StringVar(&o.series, "series", "", "where, followups: the stable series to answer for, comma-separated, such as 6.6,6.1 (default: the series kernel.org supports)")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
@@ -216,7 +217,7 @@ func discover(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Layout, er
 			log.Warn("no cache directory: every build reads every commit", "err", err)
 		}
 	}
-	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: cache})
+	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: cache, Fixes: o.fixes})
 }
 
 func build(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Graph, error) {

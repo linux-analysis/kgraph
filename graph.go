@@ -73,6 +73,9 @@ type Options struct {
 	// new since; one it does not fit, as after a branch was rewound, reads
 	// them all again.
 	Cache string
+	// Fixes is a file of Fixes: ids that name no commit and the commits
+	// they mean, as verhaal's fixes.txt, or "" for none.
+	Fixes string
 }
 
 // Build reads the graph of the trees of l.
@@ -81,6 +84,10 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 		log = slog.Default()
 	}
 	start := time.Now()
+	fixups, err := readFixups(l.opts.Fixes)
+	if err != nil {
+		return nil, err
+	}
 	cache := l.opts.Cache
 	if l.shallow {
 		log.Warn("the kernel tree is shallow: commits before its cut are not in the commit graph", "dir", l.dir)
@@ -109,7 +116,7 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 		return nil, err
 	}
 	g := &Graph{store: s, topology: newTopology(s, l), layout: l}
-	p := newPass(s, &g.topology)
+	p := newPass(s, &g.topology, fixups)
 	twins := findTwins(p)
 	read, err := s.readLines(ctx, l.dir, onALine(twins))
 	if err != nil {
@@ -124,7 +131,7 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 	log.Info("commit graph built", "commits", len(g.hashes), "cached", cached, "streamed", streamed,
 		"mainline", st.mainline, "tags", len(g.tags), "series", l.series, "upstream_named", st.upstream.named,
 		"upstream_by_author", st.upstream.identity, "upstream_rejected_reverts", st.upstream.rejected,
-		"fixes", st.fixes.fixes, "fixes_by_subject", st.fixes.rescued, "fixes_unresolved", st.fixes.unresolved, "twins", st.twins,
+		"fixes", st.fixes.fixes, "fixes_by_table", st.fixes.tabled, "fixes_by_subject", st.fixes.rescued, "fixes_unresolved", st.fixes.unresolved, "twins", st.twins,
 		"malformed", s.malformed, "duration", time.Since(start).Round(time.Millisecond))
 	return g, nil
 }

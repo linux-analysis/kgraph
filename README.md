@@ -98,9 +98,12 @@ fix applied again after its revert, or with one subject and
 cherry-picked one from another, and `reverts` what the commit itself
 reverts and whether it was reverted. A Fixes: id that names no commit,
 or several, stands for the only mainline patch with the subject the tag
-quotes. A stable branch's own revert of the upstream or of another
-series' backport, as its message names them, reverts the branch's own
-backport of that patch, the newest before it.
+quotes; with `--fixes fixes.txt` it is first looked up in that table of
+corrected ids, which comes from
+[verhaal](https://git.sr.ht/~gregkh/verhaal). A stable branch's own
+revert of the upstream or of another series' backport, as its message
+names them, reverts the branch's own backport of that patch, the newest
+before it.
 
 Every command on commits takes several hashes, and `-` among them reads
 more from standard input, so one run answers for a whole backport queue;
@@ -125,7 +128,7 @@ import (
 )
 
 rem, err := kernel.FindRemotes(ctx, dir)
-l, err := kgraph.Discover(ctx, dir, rem, kgraph.Options{Cache: cacheFile})
+l, err := kgraph.Discover(ctx, dir, rem, kgraph.Options{Cache: cacheFile, Fixes: fixesFile})
 ts, err := l.Targets([]string{"6.6", "6.12"}) // stable series
 g, err := l.Build(ctx, logger)
 c, ok := g.Commit(id)          // a full or abbreviated id
@@ -158,4 +161,5 @@ it. The tests build small repositories with git.
 
 ## License
 
-MIT, see LICENSE.
+MIT, see LICENSE, except fixes.txt: it comes from verhaal and is
+GPL-2.0-only, as its header says.

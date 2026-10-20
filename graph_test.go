@@ -533,6 +533,34 @@ func TestBuildStaleMainlineRef(t *testing.T) {
 	}
 }
 
+// A Fixes: id that names no commit is the one the fixes table gives it; a
+// NOT_VALID line there leaves the quoted subject to name it.
+func TestBuildFixesTable(t *testing.T) {
+	r := newRepo(t)
+	add := r.commit("net: add foo")
+	fix := r.commit("net: fix foo\n\nFixes: 0123456789ab")
+	again := r.commit("net: fix foo again\n\nFixes: 0123456789ac (\"net: add foo\")")
+	table := filepath.Join(t.TempDir(), "fixes.txt")
+	if err := os.WriteFile(table, []byte("# invalid valid\n0123456789AB "+add+"\n0123456789ac NOT_VALID\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g, err := buildTree(ctx, r.dir, kernel.Remotes{}, Options{Fixes: table}, quiet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{fix, again} {
+		if got := fixesOf(g, h); !slices.Equal(got, []string{add}) {
+			t.Errorf("Fixes(%s) = %v, want [%s]", h, got, add)
+		}
+	}
+	if got := fixesOf(build(t, r.dir, kernel.Remotes{}), fix); got != nil {
+		t.Errorf("without the table: Fixes = %v", got)
+	}
+	if _, err := buildTree(ctx, r.dir, kernel.Remotes{}, Options{Fixes: table + ".missing"}, quiet); err == nil {
+		t.Error("missing table: no error")
+	}
+}
+
 // A fix reworked for -fixes and cherry-picked with -x has a new author
 // date; its line naming the commit and the subject make it a copy, of
 // the twins of that commit too, but not with another subject.

@@ -8,14 +8,15 @@ import (
 
 // fixStats count how findFixes resolved the Fixes: tags.
 type fixStats struct {
-	fixes, rescued, unresolved int
+	fixes, tabled, rescued, unresolved int
 }
 
 // findFixes resolves the Fixes: tags of each commit, grouped by commit in
 // message order, each target once and never the commit itself. An id no
 // commit of the graph matches, as an id of a maintainer tree rebased
-// before it reached mainline, or one several match, is the only mainline
-// patch with the subject it quotes.
+// before it reached mainline, or one several match, is the commit the
+// table of corrected ids gives it, or else the only mainline patch with
+// the subject it quotes.
 func findFixes(p *pass, copyOf []uint32) (fixes, fstart []uint32, st fixStats) {
 	fstart = make([]uint32, 1, p.n+1)
 	next := 0
@@ -25,6 +26,8 @@ func findFixes(p *pass, copyOf []uint32) (fixes, fstart []uint32, st fixStats) {
 			st.fixes++
 			t, how := p.find(fx.rawFix, copyOf)
 			switch how {
+			case byTable:
+				st.tabled++
 			case bySubject:
 				st.rescued++
 			case unresolved:
