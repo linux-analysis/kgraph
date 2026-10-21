@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"unsafe"
 )
 
@@ -20,7 +21,7 @@ const cacheVersion = 1
 var cacheMagic = []byte("kgraph-c")
 
 // cacheAlign is the boundary every fixed-width column starts at, so that
-// the bytes read are used in place; the padding is zero. The file is
+// the mapped file is used in place; the padding is zero. The file is
 // little-endian, as the host is taken to be.
 const cacheAlign = 8
 
@@ -71,14 +72,27 @@ func (s *store) save(path string) (err error) {
 	return os.Rename(f.Name(), path)
 }
 
-// loadStore reads a store that save wrote. The columns of the store, and
-// of the graph built from it, refer into the bytes read.
+// loadStore reads a store that save wrote. It maps the file and keeps the
+// mapping, which the columns of the store and of the graph built from it
+// refer into, until release.
 func loadStore(path string) (*store, error) {
-	b, err := os.ReadFile(path)
+	b, err := mapCache(path)
 	if err != nil {
 		return nil, err
 	}
-	return decodeStore(path, b)
+	s, err := decodeStore(path, b)
+	if err != nil {
+		unmapCache(b)
+		return nil, err
+	}
+	s.mapped = b
+	return s, nil
+}
+
+// release unmaps the cache file; nothing of s may be used after it.
+func (s *store) release() {
+	unmapCache(s.mapped)
+	s.mapped = nil
 }
 
 // decodeStore reads the store in b, the bytes of the file at path.
@@ -312,8 +326,8 @@ func (d *decoder) refs() []fixRef {
 	return refs
 }
 
-// view returns the n values of T at the decoder's position, the bytes read
-// themselves.
+// view returns the n values of T at the decoder's position, the file's
+// bytes themselves.
 func view[T uint32 | uint64 | int64 | hash | namedRef](d *decoder, n int) []T {
 	var zero T
 	d.align()
@@ -322,4 +336,33 @@ func view[T uint32 | uint64 | int64 | hash | namedRef](d *decoder, n int) []T {
 		return []T{}
 	}
 	return unsafe.Slice((*T)(unsafe.Pointer(&b[0])), n)
+}
+
+// mapCache maps the cache file read-only, so that the graph uses its
+// columns in place and no copy of the file is held. save never changes a
+// file in place but renames a new one over it, so a mapping stays valid.
+func mapCache(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if st.IsDir() {
+		return nil, fmt.Errorf("%s is a directory", path)
+	}
+	if st.Size() == 0 {
+		return nil, nil
+	}
+	return syscall.Mmap(int(f.Fd()), 0, int(st.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+}
+
+// unmapCache releases what mapCache returned.
+func unmapCache(b []byte) {
+	if b != nil {
+		syscall.Munmap(b)
+	}
 }

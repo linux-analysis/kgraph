@@ -37,9 +37,9 @@ HEAD stands for mainline.
 The graph is built from the mainline branch, the `linux-*.y` branches of
 the stable remote and the `v*` release tags. The commits read are kept
 in a cache file, one per tree under `~/.cache/kgraph/` (or
-`$XDG_CACHE_HOME/kgraph`), that the next build reads and adds only the
-new commits to; `--cache FILE` names the file instead. `kgraph build`
-builds the graph and the cache and nothing else.
+`$XDG_CACHE_HOME/kgraph`), that the next build maps into memory and adds
+only the new commits to; `--cache FILE` names the file instead. `kgraph
+build` builds the graph and the cache and nothing else.
 
 ## Questions
 

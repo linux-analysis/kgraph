@@ -28,7 +28,8 @@ type store struct {
 	// those of each commit ending at its pendingEnd.
 	pending    []hash
 	pendingEnd []uint32
-	malformed  int // records of git log that did not parse
+	malformed  int    // records of git log that did not parse
+	mapped     []byte // the cache file the columns refer into, or nil
 }
 
 func newStore() *store {

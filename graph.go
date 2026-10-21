@@ -71,7 +71,8 @@ type Options struct {
 	// Cache is the file that keeps the commits a build read for the next
 	// one, or "" for none. A build from it reads only the commits that are
 	// new since; one it does not fit, as after a branch was rewound, reads
-	// them all again.
+	// them all again. The build maps the file and the graph refers into it,
+	// so the mapping lasts as long as the process.
 	Cache string
 	// Fixes is a file of Fixes: ids that name no commit and the commits
 	// they mean, as verhaal's fixes.txt, or "" for none.
@@ -109,6 +110,7 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 	streamed, err := s.update(ctx, l.dir, tips)
 	if err != nil && cached > 0 && ctx.Err() == nil {
 		log.Warn("commit graph cache does not fit the kernel tree, reading every commit", "path", cache, "err", err)
+		s.release()
 		s, cached = newStore(), 0
 		streamed, err = s.update(ctx, l.dir, tips)
 	}
