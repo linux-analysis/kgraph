@@ -44,16 +44,30 @@ another ref of it instead, such as a `next-20261001` tag (fetch them
 with `git fetch next 'refs/tags/next-*:refs/tags/next-*'`) or
 `next/pending-fixes`, and fails when the remote or the ref is missing.
 
+Vendor trees join the same way. A remote with the URL of Oracle UEK
+(github.com/oracle/linux-uek), SUSE (github.com/SUSE/kernel), CentOS
+Stream (gitlab.com/redhat/centos-stream/src/kernel/centos-stream-N), an
+Ubuntu series
+(git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/SERIES) or
+Android common (android.googlesource.com/kernel/common) is read, every
+branch fetched from it as a tip named after the remote and the branch,
+such as `uek/uek8/u2`. Choose the branches when adding the remote; the
+vendors' release tags are of no use to kgraph:
+
+    git remote add uek --no-tags -t uek8/u2 https://github.com/oracle/linux-uek.git
+    git remote add c9s --no-tags -t main https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9.git
+
 The graph is built from the mainline branch, the `linux-*.y` branches of
-the stable remote, the `v*` release tags and linux-next. The commits
-read are kept in a cache file, one per tree under `~/.cache/kgraph/` (or
-`$XDG_CACHE_HOME/kgraph`), that the next build maps into memory and adds
-only the new commits to, dropping those no branch or tag reaches any
-more, as after a rebase; `--cache FILE` names the file instead. `kgraph
-build` builds the graph and the cache and nothing else. `--no-stable`
-leaves the stable branches and releases out, for a quicker build of
-mainline alone; it keeps a cache file of its own, and `where` and
-`followups` refuse it.
+the stable remote, the `v*` release tags, linux-next and the vendor
+branches. The commits read are kept in a cache file, one per tree under
+`~/.cache/kgraph/` (or `$XDG_CACHE_HOME/kgraph`), that the next build
+maps into memory and adds only the new commits to, dropping those no
+branch or tag reaches any more, as after a rebase; `--cache FILE` names
+the file instead. `kgraph build` builds the graph and the cache and
+nothing else. `--no-stable` leaves the stable branches and releases out,
+and the vendor branches, which bring stable commits along, for a quicker
+build of mainline alone; it keeps a cache file of its own, and `where`
+and `followups` refuse it.
 
 ## Questions
 
@@ -62,22 +76,24 @@ mainline alone; it keeps a cache file of its own, and `where` and
     $ kgraph lookup dae8dda341d2
     dae8dda341d2d9034a90d59e8a7d502e1263813f	mainline	tag v7.3-rc2	release v7.3
 
-The second column is the tree: `mainline`, `stable` or `next`. Hashes
-may be abbreviated.
+The second column is the tree: `mainline`, `stable`, `next` or a vendor
+branch. Hashes may be abbreviated.
 
 The other questions are about the commit's patch, the change itself: the
 mainline and linux-next commits that are the same patch merged more than
-once, its copies, with the stable backports of any of them. A backport
-stands for its upstream, a copy for every copy, and an answer names each
-patch by its canonical copy, the one in the earliest release. `where`
-tells which stable series have a commit, through the series' base
-release or a backport, and since which release; a revert the series has
-takes out what it reverts, and a revert of that revert brings it back. A
-series that picked a patch twice and reverted the second pick as a
-duplicate still has it, while copies a merge made one change go out
-together, and a backport of a mainline revert undoes what the revert
-undoes, whatever its message names. `--series` names the series, and
-without it they are the series kernel.org supports:
+once, its copies, with the stable and vendor backports of any of them. A
+backport stands for its upstream, a copy for every copy, and an answer
+names each patch by its canonical copy, the one in the earliest release.
+`where` tells which stable series and vendor branches have a commit,
+through the series' base release or a backport, and since which release;
+a revert the series has takes out what it reverts, and a revert of that
+revert brings it back. A series that picked a patch twice and reverted
+the second pick as a duplicate still has it, while copies a merge made
+one change go out together, and a backport of a mainline revert undoes
+what the revert undoes, whatever its message names. `--series` names the
+series and branches, and without it they are the series kernel.org
+supports and every vendor branch of the tree. A vendor branch has no
+releases to kgraph, so its tag column is `-`:
 
     $ kgraph --series 6.12,6.18,7.2 where dae8dda341d2
     dae8dda341d2d9034a90d59e8a7d502e1263813f	mainline	tag v7.3-rc2	release v7.3
@@ -87,18 +103,20 @@ without it they are the series kernel.org supports:
 
 `followups` lists the later fixes whose Fixes: tags name the patch and
 that a series with the patch never had, with their tag and subject; a
-fix mainline reverted is none, a series that reverted a fix does not
-lack it, and a fix still in linux-next shows `next` in place of a tag:
+fix mainline reverted is none, nor is a vendor branch's own fix, which
+no other tree can take, nor a merge, which quotes the tags of the
+commits it brings; a series that reverted a fix does not lack it, and a
+fix still in linux-next shows `next` in place of a tag:
 
     $ kgraph --series 6.18,7.2 followups dae8dda341d2
     dae8dda341d2d9034a90d59e8a7d502e1263813f	5cbea500775dd1944995f23320af030b9b24b24b	6.18	v7.3-rc2	tracing: Fix comment in tracing_buffers_splice_read()
     dae8dda341d2d9034a90d59e8a7d502e1263813f	7e645147dfba67edb3ed3090a1ed1d89df77fc27	6.18	v7.3-rc3	tracing: Fix ring_buffer_read_page_size() kernel-doc
 
-`backports` lists the stable backports of a patch as the kernel CNA's
-dyad counts them, those in a release, and none that its own series
-reverted; `--adapted` marks the ones that change other lines than their
-upstream commit does, in whichever files: a backport to a file that
-moved since is no adapted one:
+`backports` lists the stable and vendor backports of a patch, the stable
+ones as the kernel CNA's dyad counts them, those in a release, and none
+that its own series or branch reverted; `--adapted` marks the ones that
+change other lines than their upstream commit does, in whichever files:
+a backport to a file that moved since is no adapted one:
 
     $ kgraph --adapted backports dae8dda341d2
     dae8dda341d2d9034a90d59e8a7d502e1263813f	3f30b2cd4eba45c05f822f03f1b0f4077d6d4dc3	stable	tag v6.18.57	series v6.18	upstream dae8dda341d2d9034a90d59e8a7d502e1263813f	adapted
@@ -114,10 +132,10 @@ reverts and whether it was reverted. A Fixes: id that names no commit,
 or several, stands for the only mainline patch with the subject the tag
 quotes; with `--fixes fixes.txt` it is first looked up in that table of
 corrected ids, which comes from
-[verhaal](https://git.sr.ht/~gregkh/verhaal). A stable branch's own
-revert of the upstream or of another series' backport, as its message
-names them, reverts the branch's own backport of that patch, the newest
-before it.
+[verhaal](https://git.sr.ht/~gregkh/verhaal). A stable or vendor
+branch's own revert of the upstream or of another series' backport, as
+its message names them, reverts the branch's own backport of that patch,
+the newest before it.
 
 Every command on commits takes several hashes, and `-` among them reads
 more from standard input, so one run answers for a whole backport queue;
@@ -143,7 +161,7 @@ import (
 
 rem, err := kernel.FindRemotes(ctx, dir)
 l, err := kgraph.Discover(ctx, dir, rem, kgraph.Options{Cache: cacheFile, Fixes: fixesFile})
-ts, err := l.Targets([]string{"6.6", "6.12"}) // stable series
+ts, err := l.Targets([]string{"6.6", "6.12", "uek/uek8/u2"}) // stable series and trees
 g, err := l.Build(ctx, logger)
 c, ok := g.Commit(id)          // a full or abbreviated id
 g.Ambiguous(id)                // whether several commits have the abbreviated id
@@ -152,9 +170,9 @@ c.Upstream()                   // the mainline commit a backport was made from
 c.Reverts(); c.RevertedBy()
 p := c.Patch()                 // the change: its copies and backports
 p.Commit()                     // its canonical copy
-p.Copies(); p.Backports()      // the backports by dyad's rules
+p.Copies(); p.Backports()      // the backports by dyad's rules, then vendor ones
 p.Fixes(); p.FixedBy()         // by Fixes: tags
-p.In(ts)                       // whether each series has it
+p.In(ts)                       // whether each series and tree has it
 p.Followups(ts)                // the later fixes they lack
 ```
 

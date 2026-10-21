@@ -33,10 +33,11 @@ const (
 	mainlineTree treeKind = iota
 	stableTree
 	nextTree
+	vendorTree
 )
 
 // tree is a group of tips whose commits share a name: the mainline branch
-// and tags, the stable branches and tags, or linux-next.
+// and tags, the stable branches and tags, linux-next, or a vendor branch.
 type tree struct {
 	name string
 	kind treeKind
@@ -58,10 +59,12 @@ type tag struct {
 // is not in the graph.
 //
 // The master branch of rem's next remote, or o.Next, is linux-next, a tree
-// of its own; a next remote whose branch is missing is an error too.
+// of its own; a next remote whose branch is missing is an error too. Every
+// branch of a vendor remote of rem is a tree as well, named after the
+// remote and the branch, as uek/uek8/u2.
 func Discover(ctx context.Context, dir string, rem kernel.Remotes, o Options) (*Layout, error) {
 	if o.NoStable {
-		rem.Stable = ""
+		rem.Stable, rem.Vendors = "", nil
 	}
 	mainRef := "HEAD"
 	if rem.Mainline != "" {
@@ -114,6 +117,20 @@ func Discover(ctx context.Context, dir string, rem kernel.Remotes, o Options) (*
 	case o.Next != "":
 		return nil, fmt.Errorf("kernel tree %s has no linux-next remote to read %s from", dir, o.Next)
 	}
+	for _, v := range rem.Vendors {
+		refs, err := listRefs(ctx, dir, "refs/remotes/"+v+"/")
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range refs {
+			if !strings.HasSuffix(r.name, "/HEAD") {
+				l.trees = append(l.trees, tree{r.name, vendorTree, []hash{r.commit}})
+			}
+		}
+	}
+	if len(l.trees) > 64 {
+		return nil, fmt.Errorf("the graph tells at most 64 trees apart and kernel tree %s has %d: restrict the vendor branches with git remote set-branches", dir, len(l.trees))
+	}
 	out, err := git.Run(ctx, dir, nil, "rev-parse", "--is-shallow-repository")
 	l.shallow = err == nil && strings.TrimSpace(string(out)) == "true"
 	return l, nil
@@ -128,6 +145,28 @@ func (l *Layout) tips() []hash {
 	return tips
 }
 
+// Trees names the trees of the layout: mainline, stable, next when the
+// tree has linux-next, and the vendor branches.
+func (l *Layout) Trees() []string {
+	names := make([]string, len(l.trees))
+	for i, t := range l.trees {
+		names[i] = t.name
+	}
+	return names
+}
+
+// VendorBranches names the vendor branches of the layout, as Lookup names
+// their trees.
+func (l *Layout) VendorBranches() []string {
+	var names []string
+	for _, t := range l.trees {
+		if t.kind == vendorTree {
+			names = append(names, t.name)
+		}
+	}
+	return names
+}
+
 // Tags are the release tags of the layout, in version order.
 func (l *Layout) Tags() []kernel.Tag {
 	tags := make([]kernel.Tag, len(l.tags))
@@ -137,23 +176,29 @@ func (l *Layout) Tags() []kernel.Tag {
 	return tags
 }
 
-// Target is what In answers for: a stable series, such as 6.6, or a tree.
+// Target is what InSeries answers for: a stable series, such as 6.6, or a
+// tree of the layout, such as uek/uek8/u2.
 type Target struct {
 	Name   string
 	series kernel.Release // the release a stable series branches from
 	tree   int            // the index of a tree, or -1 for a stable series
 }
 
-// Targets reads names as stable series, such as 6.6 or v6.6, and fails on
-// any other name, a release such as 6.6.30 too.
+// Targets reads names as stable series, such as 6.6 or v6.6, or trees of
+// the layout, such as uek/uek8/u2, and fails on any other name, a release
+// such as 6.6.30 too.
 func (l *Layout) Targets(names []string) ([]Target, error) {
 	ts := make([]Target, len(names))
 	for i, name := range names {
-		st, ok := kernel.ParseStable(name)
-		if !ok {
-			return nil, fmt.Errorf("%q is not a stable series", name)
+		if st, ok := kernel.ParseStable(name); ok {
+			ts[i] = Target{Name: st.Series, series: st.Release(), tree: -1}
+			continue
 		}
-		ts[i] = Target{Name: st.Series, series: st.Release(), tree: -1}
+		t := slices.IndexFunc(l.trees, func(t tree) bool { return t.name == name })
+		if t < 0 {
+			return nil, fmt.Errorf("%q is neither a stable series nor a tree of kernel tree %s", name, l.dir)
+		}
+		ts[i] = Target{Name: name, tree: t}
 	}
 	return ts, nil
 }

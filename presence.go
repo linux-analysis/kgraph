@@ -2,16 +2,17 @@ package kgraph
 
 import "slices"
 
-// Presence is whether a stable series has a patch, and where.
+// Presence is whether a stable series or a tree has a patch, and where.
 type Presence struct {
-	Series string `json:"series"` // a stable series such as 6.6
+	Series string `json:"series"` // a stable series such as 6.6, or a tree such as uek/uek8/u2
 	// Tag is the release of the series that has had the patch since: the
 	// series' base release when the series branched with it, else the
 	// first tag of the earliest backport, or revert of its revert, that
-	// still carries it; "" when the series lacks it.
+	// still carries it; "" when the series lacks it, and for a tree.
 	Tag string `json:"tag,omitempty"`
 	// Commit is the earliest commit that still carries the patch: a copy,
-	// a backport, or a revert of its revert; "" when the series lacks it.
+	// a backport, or a revert of its revert; "" when the series or tree
+	// lacks it.
 	Commit string `json:"commit,omitempty"`
 }
 
@@ -113,9 +114,10 @@ func (g *Graph) replay(steps []step, t Target) (st state, carriers []int) {
 	return absent, nil
 }
 
-// In tells for each of ts, stable series, whether it has the patch, as
-// replaying the timeline of the patch tells, and since when. A series has
-// the commits of its releases and of its base release.
+// In tells for each of ts, stable series and trees of the graph, whether
+// it has the patch, as replaying the timeline of the patch tells, and
+// since when. A series has the commits of its releases and of its base
+// release, a tree those its tips reach.
 func (p Patch) In(ts []Target) []Presence {
 	g := p.g
 	steps := g.timeline(p.c)
@@ -138,10 +140,11 @@ func (p Patch) In(ts []Target) []Presence {
 	return out
 }
 
-// Backports are the stable backports of the patch, in version order of
-// their tags, as the kernel CNA's dyad counts them: those in a release,
-// and none that its own series undid, by reverting it or the patch; other
-// series play no part.
+// Backports are the stable and vendor backports of the patch, in version
+// order of their tags, as the kernel CNA's dyad counts them: the stable
+// ones only when in a release, and none that its own series or branch
+// undid, by reverting it or the patch; other trees play no part. Vendor
+// commits, which no release tag reaches, come last.
 func (p Patch) Backports() []Commit {
 	g := p.g
 	steps := g.timeline(p.c)
@@ -158,17 +161,18 @@ func (p Patch) Backports() []Commit {
 	return g.commits(out)
 }
 
-// Related is a later fix of a patch, with the series that lack it.
+// Related is a later fix of a patch, with the series and trees that lack
+// it.
 type Related struct {
 	Patch  Patch
 	Series []string
 }
 
 // Followups lists the follow-up fixes of the patch, the patches with a
-// commit whose Fixes: tags name it, with the series of ts that have the
-// patch and never had the fix. A fix that reverts the patch is none, nor
-// is one that mainline reverted; a series that reverted the fix does not
-// lack it.
+// commit whose Fixes: tags name it, with the series and trees of ts that
+// have the patch and never had the fix. A fix that reverts the patch is
+// none, nor is one that mainline reverted, nor a vendor branch's own; a
+// series or tree that reverted the fix does not lack it.
 func (p Patch) Followups(ts []Target) []Related {
 	g := p.g
 	var have []Target
@@ -183,7 +187,7 @@ func (p Patch) Followups(ts []Target) []Related {
 	mainline := Target{Name: "mainline", tree: 0}
 	var out []Related
 	for _, f := range p.FixedBy() {
-		if g.revertsPatch(f.c, p.c) {
+		if g.vendorOnly(f.c) || g.revertsPatch(f.c, p.c) {
 			continue
 		}
 		steps := g.timeline(f.c)

@@ -43,8 +43,8 @@ func (c Commit) Hash() string { return c.g.hashes[c.i].String() }
 // commit.
 func (c Commit) Mainline() bool { return c.g.mainline(c.i) }
 
-// Tree is where the commit is: mainline, else the first of stable and next
-// that has it.
+// Tree is where the commit is: mainline, else the first of stable, next
+// and the vendor branches, such as uek/uek8/u2, that has it.
 func (c Commit) Tree() string { return c.g.treeOf(c.i) }
 
 // Date is the committer date, Unix time.
@@ -115,8 +115,8 @@ func (g *Graph) commits(list []uint32) []Commit {
 }
 
 // Patch is a change: the mainline and linux-next commits that are the
-// same patch merged more than once, its copies, with the stable commits
-// backported from any of them. Every question about a change is a
+// same patch merged more than once, its copies, with the stable and vendor
+// commits backported from any of them. Every question about a change is a
 // question about its patch, whichever of its commits names it. A commit
 // outside mainline and linux-next that is no backport is a patch of its
 // own.

@@ -32,6 +32,9 @@ func newPass(s *store, t *topology, fixups map[string]hash) *pass {
 	return p
 }
 
+// merge tells whether commit i is a merge.
+func (p *pass) merge(i int) bool { return len(p.parents.of(uint32(i))) > 1 }
+
 // how tells how find found the commit an id names.
 type how int
 

@@ -775,12 +775,18 @@ func TestBuildStops(t *testing.T) {
 	}
 }
 
-// NoStable leaves every stable commit out and changes nothing about
-// mainline.
+// NoStable leaves every stable commit out, also those a vendor branch
+// brings along, and changes nothing about mainline.
 func TestBuildNoStable(t *testing.T) {
 	k := newKernel(t)
+	k.git("checkout", "-q", "-b", "u2", k.s["fix60"])
+	own := k.commitAs("vendor@example.com", "uek: own change")
+	k.git("update-ref", "refs/remotes/uek/u2", "HEAD")
+	k.git("checkout", "-q", "master")
+	rem := remotes
+	rem.Vendors = []string{"uek"}
 	var log bytes.Buffer
-	g, err := buildTree(ctx, k.dir, remotes, Options{NoStable: true}, slog.New(slog.NewTextHandler(&log, nil)))
+	g, err := buildTree(ctx, k.dir, rem, Options{NoStable: true}, slog.New(slog.NewTextHandler(&log, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -789,6 +795,9 @@ func TestBuildNoStable(t *testing.T) {
 		if _, ok := lookupOf(g, h); ok {
 			t.Errorf("stable commit %s is in the graph", name)
 		}
+	}
+	if _, ok := lookupOf(g, own); ok || slices.Contains(g.layout.Trees(), "uek/u2") {
+		t.Errorf("the vendor branch is in the graph: %v", g.layout.Trees())
 	}
 	if c := lookup(t, g, k.m["fix"]); !c.Mainline || c.Tag != "v6.1-rc1" {
 		t.Errorf("fix = %+v, want mainline in v6.1-rc1", c)
@@ -864,5 +873,105 @@ func TestBuildNext(t *testing.T) {
 	}
 	if _, err := buildTree(ctx, k.dir, remotes, Options{Next: "refs/remotes/next/master"}, quiet); err == nil {
 		t.Error("a next ref without a next remote built")
+	}
+}
+
+// A vendor remote's branches are tips: their commits are in the graph under
+// the branch's name, their picks of mainline commits, also through a stable
+// backport, are backports, and InSeries tells whether the branch has a
+// mainline commit, through its base, a pick or a revert, or a commit of its
+// own.
+func TestBuildVendor(t *testing.T) {
+	k := newKernel(t)
+	k.git("checkout", "-q", "-b", "u2", "v6.0")
+	pick := k.commit("net: fix foo\n\ncommit " + k.m["fix"] + " upstream.\n(cherry picked from commit " + k.s["fix60"] + ")")
+	chase := k.commit("arm: fix baz\n\n(cherry picked from commit " + k.s["untagged60"] + ")")
+	own := k.commitAs("vendor@example.com", "uek: own change")
+	revert := k.commit("Revert \"net: fix foo\"\n\nThis reverts commit " + pick + ".")
+	// A revert of a stable backport the branch never took.
+	k.commitAs("vendor@example.com", "uek: drop the bar fix\n\nThis reverts commit "+k.s["bar60"]+".")
+	k.git("update-ref", "refs/remotes/uek/u2", "HEAD")
+	k.git("symbolic-ref", "refs/remotes/uek/HEAD", "refs/remotes/uek/u2")
+	k.git("checkout", "-q", "master")
+	rem := remotes
+	rem.Vendors = []string{"uek"}
+	cache := filepath.Join(t.TempDir(), "graph.cache")
+	g, _ := buildWith(t, k.dir, rem, cache)
+	if !slices.Equal(g.layout.Trees(), []string{"mainline", "stable", "uek/u2"}) {
+		t.Errorf("trees = %v", g.layout.Trees())
+	}
+	if got := g.layout.VendorBranches(); !slices.Equal(got, []string{"uek/u2"}) {
+		t.Errorf("VendorBranches = %v", got)
+	}
+	for name, tt := range map[string]struct{ hash, tree, upstream string }{
+		"pick":      {pick, "uek/u2", k.m["fix"]},
+		"chase":     {chase, "uek/u2", k.m["late"]},
+		"own":       {own, "uek/u2", ""},
+		"revert":    {revert, "uek/u2", k.m["revert"]}, // by author and subject, as a stable revert
+		"base":      {k.m["add"], "mainline", ""},
+		"stable":    {k.s["fix60"], "stable", k.m["fix"]},
+		"untagged":  {k.s["untagged60"], "stable", k.m["late"]},
+		"elsewhere": {k.m["again"], "mainline", ""},
+	} {
+		if c := lookup(t, g, tt.hash); c.Tree != tt.tree || c.Upstream != tt.upstream {
+			t.Errorf("%s: tree %q upstream %q, want %q %q", name, c.Tree, c.Upstream, tt.tree, tt.upstream)
+		}
+	}
+	if got := backportsOf(g, k.m["late"]); !slices.Equal(got, []string{chase}) {
+		t.Errorf("Backports(late) = %v, want the untagged vendor pick %s", got, chase)
+	}
+	if got := backportsOf(g, k.m["fix"]); !slices.Equal(got, []string{k.s["fix515"]}) {
+		t.Errorf("Backports(fix) = %v, want %s alone: the vendor pick is reverted", got, k.s["fix515"])
+	}
+	in := func(c string) Presence { return Presence{Series: "uek/u2", Commit: c} }
+	for name, tt := range map[string]struct {
+		hash string
+		want []Presence
+	}{
+		"base":            {k.m["add"], []Presence{in(k.m["add"]), {Series: "6.0", Tag: "v6.0", Commit: k.m["add"]}}},
+		"reverted pick":   {k.m["fix"], []Presence{in(""), {Series: "6.0"}}},
+		"stable backport": {k.s["fix515"], []Presence{in(""), {Series: "6.0"}}},
+		"chased pick":     {k.m["late"], []Presence{in(chase), {Series: "6.0"}}},
+		"after the base":  {k.m["again"], []Presence{in(""), {Series: "6.0"}}},
+		"own":             {own, []Presence{in(own), {Series: "6.0"}}},
+		// A revert of a vendor-only commit counts for nothing, as for stable.
+		"revert": {revert, []Presence{in(""), {Series: "6.0"}}},
+	} {
+		if got := inSeriesOf(g, tt.hash, targets(t, g, "uek/u2", "6.0")); !slices.Equal(got, tt.want) {
+			t.Errorf("InSeries(%s) = %v, want %v", name, got, tt.want)
+		}
+	}
+	// Mainline reverted fix, so bar is the one follow-up; 6.0 has it.
+	if got := followupsOf(g, k.m["add"], targets(t, g, "uek/u2", "6.0")); len(got) != 1 || got[0].Hash != k.m["bar"] || !slices.Equal(got[0].Series, []string{"uek/u2"}) {
+		t.Errorf("Followups(add) = %+v, want bar lacking in uek/u2", got)
+	}
+	// The vendor revert of bar60 is no business of 6.0's.
+	if got := backportsOf(g, k.m["bar"]); !slices.Equal(got, []string{k.s["bar60"]}) {
+		t.Errorf("Backports(bar) = %v, want [%s]", got, k.s["bar60"])
+	}
+	if _, log := buildWith(t, k.dir, rem, cache); !strings.Contains(log, "streamed=0") {
+		t.Errorf("vendor tips not cached:\n%s", log)
+	}
+}
+
+// A branch that points at an annotated tag stands for the tagged commit,
+// as git log takes it, so the commit is in the branch's tree and the cache
+// fits the next build.
+func TestBuildBranchAtTag(t *testing.T) {
+	k := newKernel(t)
+	k.git("checkout", "-q", "-b", "u2", "v6.0")
+	own := k.commitAs("vendor@example.com", "uek: own change")
+	k.git("tag", "-a", "-m", "uek release", "uek-1", own)
+	k.git("update-ref", "refs/remotes/uek/u2", "uek-1")
+	k.git("checkout", "-q", "master")
+	rem := remotes
+	rem.Vendors = []string{"uek"}
+	cache := filepath.Join(t.TempDir(), "graph.cache")
+	g, _ := buildWith(t, k.dir, rem, cache)
+	if c := lookup(t, g, own); c.Tree != "uek/u2" {
+		t.Errorf("tree %q, want uek/u2", c.Tree)
+	}
+	if _, log := buildWith(t, k.dir, rem, cache); !strings.Contains(log, "streamed=0") || strings.Contains(log, "does not fit") {
+		t.Errorf("second build:\n%s", log)
 	}
 }

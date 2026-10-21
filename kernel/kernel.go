@@ -15,11 +15,13 @@ import (
 )
 
 // Remotes names the remotes that track mainline, stable and linux-next,
-// Next being "" when the tree has no linux-next.
+// Next being "" when the tree has no linux-next, and the remotes of vendor
+// trees, in name order.
 type Remotes struct {
-	Mainline string `json:"mainline"`
-	Stable   string `json:"stable"`
-	Next     string `json:"next,omitempty"`
+	Mainline string   `json:"mainline"`
+	Stable   string   `json:"stable"`
+	Next     string   `json:"next,omitempty"`
+	Vendors  []string `json:"vendors,omitempty"`
 }
 
 // MainlineRef is the ref that defines mainline membership.
@@ -41,11 +43,14 @@ var (
 	mainlineURLRe = regexp.MustCompile(`[/:]torvalds/linux(\.git)?$`)
 	stableURLRe   = regexp.MustCompile(`[/:]stable/linux(-stable)?(\.git)?$`)
 	nextURLRe     = regexp.MustCompile(`[/:]linux-next(\.git)?$`)
+	// The vendor trees: Oracle UEK, SUSE, CentOS Stream, Android common
+	// and the Ubuntu kernel of one series.
+	vendorURLRe = regexp.MustCompile(`(?:github\.com[/:](?:oracle/linux-uek|SUSE/kernel)|gitlab\.com[/:]redhat/centos-stream/src/kernel/centos-stream-\d+|android\.googlesource\.com/kernel/common)(\.git)?$|launchpad\.net/~ubuntu-kernel/ubuntu/\+source/linux[^/]*/\+git/[^/]+$`)
 )
 
-// FindRemotes finds the remotes for torvalds/linux, stable/linux and
-// linux-next by URL, falling back to remotes literally named mainline and
-// stable; a remote it does not find is left empty.
+// FindRemotes finds the remotes for torvalds/linux, stable/linux,
+// linux-next and the vendor trees by URL, falling back to remotes literally
+// named mainline and stable; a remote it does not find is left empty.
 func FindRemotes(ctx context.Context, dir string) (Remotes, error) {
 	out, err := git.Run(ctx, dir, nil, "remote", "-v")
 	if err != nil {
@@ -73,6 +78,8 @@ func FindRemotes(ctx context.Context, dir string) (Remotes, error) {
 			if rem.Next == "" {
 				rem.Next = name
 			}
+		case vendorURLRe.MatchString(url):
+			rem.Vendors = append(rem.Vendors, name)
 		}
 	}
 	if rem.Mainline == "" && names["mainline"] {

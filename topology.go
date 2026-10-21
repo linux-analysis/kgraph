@@ -17,7 +17,7 @@ type topology struct {
 	firstTag []int32  // index into tags, none when no tag contains the commit
 	gen      []uint32 // one more than the highest generation of the parents, 1 for a root
 	tagAt    map[uint32]int32
-	kinds    [nextTree + 1]uint64
+	kinds    [vendorTree + 1]uint64
 	walks    *sync.Pool // of *walk, for ancestor
 }
 
@@ -107,6 +107,9 @@ func (t *topology) pooled(i uint32) bool {
 	return t.reach[i]&(t.kinds[mainlineTree]|t.kinds[nextTree]) != 0
 }
 
+// vendorOnly tells whether only vendor branches reach commit i.
+func (t *topology) vendorOnly(i uint32) bool { return t.reach[i]&^t.kinds[vendorTree] == 0 }
+
 // treeOf names the tree of commit i: the first of the trees that reach it,
 // mainline first.
 func (t *topology) treeOf(i uint32) string {
@@ -129,9 +132,14 @@ func (t *topology) has(tg Target, x uint32) bool {
 	return tag.Stable && tag.Release == tg.series || !tag.Stable && tag.Release <= tg.series
 }
 
-// targetOf is the stable series of a stable commit, by its tag. ok is
-// false for one in no release yet.
+// targetOf is the stable series or vendor branch of a commit outside
+// mainline and linux-next: its series by its tag, else the first vendor
+// branch that reaches it. ok is false for a stable commit in no release
+// yet.
 func (t *topology) targetOf(x uint32) (tg Target, ok bool) {
+	if !t.in(x, stableTree) {
+		return Target{tree: bits.TrailingZeros64(t.reach[x] &^ t.kinds[stableTree])}, true
+	}
 	if t.firstTag[x] == none {
 		return Target{}, false
 	}

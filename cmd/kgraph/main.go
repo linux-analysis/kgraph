@@ -39,19 +39,19 @@ Flags may also follow the command; after --, every argument is one.
 commands:
   build                  build the graph and write its cache
   lookup HASH...         tree, tag, release, series, upstream and date
-  where HASH...          whether each stable series has it,
+  where HASH...          whether each stable series and vendor branch has it,
                          and since which release
   followups HASH...      its later fixes that a series or branch with it lacks
   fixes HASH...          the commits its Fixes: tags name
   fixed-by HASH...       the later commits whose Fixes: tags name it, in any tree
-  backports HASH...      its stable backports; with --adapted, marked when
+  backports HASH...      its stable and vendor backports; with --adapted, marked when
                          they add or remove other lines than it
   copies HASH...         the mainline commits with its author, date and subject,
                          or with its subject and cherry-picked to or from it
   reverts HASH...        what it reverts, and whether it was reverted
   release TAG...         the mainline release a tag or version belongs to
   tags                   the mainline release tags of the tree
-  remotes                the mainline, stable and linux-next remotes
+  remotes                the mainline, stable, linux-next and vendor remotes
   series                 the stable series kernel.org supports
 
 A HASH may be -, which reads hashes from standard input in its place,
@@ -85,10 +85,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.tree, "tree", ".", "git repository of the kernel tree, a checkout or a bare clone")
 	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones (default: one per tree under the user cache directory)")
 	fs.StringVar(&o.fixes, "fixes", "", "file of Fixes: ids that name no commit and the commits they mean, such as fixes.txt of the kgraph source")
-	fs.BoolVar(&o.noStable, "no-stable", false, "leave the stable branches and releases out: the graph holds mainline alone")
+	fs.BoolVar(&o.noStable, "no-stable", false, "leave the stable branches and releases, and the vendor branches, out: the graph holds mainline alone")
 	fs.StringVar(&o.next, "next", "", "linux-next ref to read instead of the next remote's master, such as next-20261001 or next/pending-fixes")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
-	fs.StringVar(&o.series, "series", "", "where, followups: the stable series to answer for, comma-separated, such as 6.6,6.1 (default: the series kernel.org supports)")
+	fs.StringVar(&o.series, "series", "", "where, followups: the stable series and vendor branches to answer for, comma-separated, such as 6.6,6.1,uek/uek8/u2 (default: the series kernel.org supports and every vendor branch)")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
 	fs.BoolVar(&o.version, "version", false, "print the version and exit")
 	fs.Usage = func() {
@@ -483,7 +483,7 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 		return fmt.Errorf("%w: %s takes commit hashes", errUsage, cmd)
 	}
 	if o.noStable && (cmd == "where" || cmd == "followups") {
-		return fmt.Errorf("%w: %s answers for stable series, which --no-stable leaves out", errUsage, cmd)
+		return fmt.Errorf("%w: %s answers for stable series and vendor branches, which --no-stable leaves out", errUsage, cmd)
 	}
 	l, err := discover(ctx, o, log)
 	if err != nil {
@@ -496,6 +496,9 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 		names, err := seriesNames(ctx, o)
 		if err != nil {
 			return err
+		}
+		if o.series == "" {
+			names = append(names, l.VendorBranches()...)
 		}
 		if targets, err = l.Targets(names); err != nil {
 			return fmt.Errorf("%w: %v", errUsage, err)
@@ -705,7 +708,7 @@ func remotes(ctx context.Context, o opts, out io.Writer) error {
 		return err
 	}
 	return print(out, o, rem, func() {
-		fmt.Fprintf(out, "mainline: %s\nstable: %s\nnext: %s\n", rem.Mainline, rem.Stable, rem.Next)
+		fmt.Fprintf(out, "mainline: %s\nstable: %s\nnext: %s\nvendors: %s\n", rem.Mainline, rem.Stable, rem.Next, strings.Join(rem.Vendors, " "))
 	})
 }
 

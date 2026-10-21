@@ -12,7 +12,8 @@ type fixStats struct {
 }
 
 // findFixes resolves the Fixes: tags of each commit, grouped by commit in
-// message order, each target once and never the commit itself. An id no
+// message order, each target once and never the commit itself; a merge,
+// which quotes the messages of the commits it brings, has none. An id no
 // commit of the graph matches, as an id of a maintainer tree rebased
 // before it reached mainline, or one several match, is the commit the
 // table of corrected ids gives it, or else the only mainline patch with
@@ -23,6 +24,9 @@ func findFixes(p *pass, copyOf []uint32) (fixes, fstart []uint32, st fixStats) {
 	for i := range p.n {
 		for ; next < len(p.facts.fixes) && p.facts.fixes[next].commit == uint32(i); next++ {
 			fx := p.facts.fixes[next]
+			if p.merge(i) {
+				continue
+			}
 			st.fixes++
 			t, how := p.find(fx.rawFix, copyOf)
 			switch how {

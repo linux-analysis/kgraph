@@ -130,7 +130,7 @@ func TestFindRemotes(t *testing.T) {
 	// Resolution by URL only: no fetch happens here, so the real kernel.org
 	// URLs are safe to register.
 	gitRun(t, fx.dir, "remote", "add", "vanilla", "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git")
-	if rem, err := FindRemotes(ctx, fx.dir); err != nil || rem.Mainline != "vanilla" || rem.Stable != "" || rem.Next != "" {
+	if rem, err := FindRemotes(ctx, fx.dir); err != nil || rem.Mainline != "vanilla" || rem.Stable != "" || rem.Next != "" || rem.Vendors != nil {
 		t.Errorf("mainline only: %+v %v", rem, err)
 	}
 	gitRun(t, fx.dir, "remote", "add", "stable", "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/")
@@ -151,6 +151,24 @@ func TestFindRemotes(t *testing.T) {
 		t.Errorf("next by url: %+v %v", rem, err)
 	}
 	gitRun(t, fx.dir, "remote", "remove", "next")
+
+	// Vendor trees by URL, in name order; a maintainer tree is none.
+	for name, url := range map[string]string{
+		"a-uek":     "https://github.com/oracle/linux-uek.git",
+		"b-suse":    "git@github.com:SUSE/kernel",
+		"c-c9s":     "https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9.git",
+		"d-ubuntu":  "https://git.launchpad.net/~ubuntu-kernel/ubuntu/+source/linux/+git/noble",
+		"e-android": "https://android.googlesource.com/kernel/common",
+		"axboe":     "git://git.kernel.org/pub/scm/linux/kernel/git/axboe/linux.git",
+	} {
+		gitRun(t, fx.dir, "remote", "add", name, url)
+	}
+	if rem, err := FindRemotes(ctx, fx.dir); err != nil || !slices.Equal(rem.Vendors, []string{"a-uek", "b-suse", "c-c9s", "d-ubuntu", "e-android"}) {
+		t.Errorf("vendors by url: %+v %v", rem, err)
+	}
+	for _, name := range []string{"a-uek", "b-suse", "c-c9s", "d-ubuntu", "e-android", "axboe"} {
+		gitRun(t, fx.dir, "remote", "remove", name)
+	}
 
 	// Other common spellings: scp-style SSH and the older linux-stable name.
 	for _, tc := range []struct{ mainline, stable string }{

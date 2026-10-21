@@ -26,15 +26,24 @@ func findNamed(p *pass) []int32 {
 //   - the identity: the only mainline patch with its author and subject
 //     that is not newer, by its canonical copy, as copyOf gives it.
 func findUpstreams(p *pass, named, revert []int32, copyOf []uint32) (upstream []int32, st upstreamStats) {
+	// A pick of a stable backport names the backport, so a named commit
+	// outside mainline stands for the one it names in turn.
+	chase := func(u int32) int32 {
+		if u != none && !p.mainline[u] && named[u] != none {
+			return named[u]
+		}
+		return u
+	}
 	// A revert of a backport quotes the backport's upstream line, so a
 	// commit that reverts the commit it names, or a commit naming the same
 	// one, has no upstream by its message.
 	upstream = filled(p.n)
 	for i, u := range named {
+		u = chase(u)
 		if u == none || p.pool[i] || !p.mainline[u] {
 			continue
 		}
-		if r := revert[i]; r != none && (r == u || named[r] == u) {
+		if r := revert[i]; r != none && (r == u || chase(named[r]) == u) {
 			st.rejected++
 			continue
 		}

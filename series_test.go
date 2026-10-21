@@ -230,3 +230,68 @@ func TestOwnRevertOfBackport(t *testing.T) {
 		t.Errorf("Backports = %v, want none", got)
 	}
 }
+
+// A vendor merge quotes the Fixes: tags of the commits it brings, and is
+// no fix itself; a fix only a vendor branch has is no follow-up, as no
+// other series or branch can take it.
+func TestVendorFixesNoFollowups(t *testing.T) {
+	r := newRepo(t)
+	r.commit("init")
+	r.git("tag", "v5.0")
+	x := r.commit("net: add foo")
+	r.git("tag", "v5.1")
+	fix := r.commit("net: fix foo\n\nFixes: " + x[:12] + " (\"net: add foo\")")
+	r.git("tag", "v5.2-rc1")
+	r.git("checkout", "-q", "-b", "c9s", "v5.1")
+	own := r.commitAs("rh@example.com", "net: fix foo for RHEL\n\nUpstream Status: RHEL-Only\n\nFixes: "+x[:12])
+	r.git("checkout", "-q", "-b", "mr", "v5.1")
+	r.commitAs("rh@example.com", "wifi: tidy")
+	r.git("checkout", "-q", "c9s")
+	r.clock += 3600
+	r.git("merge", "-q", "--no-ff", "-m", "Merge: net: fix foo\n\nFixes: "+x[:12]+" (\"net: add foo\")", "mr")
+	r.git("update-ref", "refs/remotes/centos/main", "HEAD")
+	r.git("checkout", "-q", "master")
+	g := build(t, r.dir, kernel.Remotes{Vendors: []string{"centos"}})
+	if got := fixedByOf(g, x); !slices.Equal(got, []string{fix, own}) {
+		t.Errorf("FixedBy = %v, want [%s %s]", got, fix, own)
+	}
+	want := []followup{{fix, []string{"centos/main", "5.1"}}}
+	if got := followupsOf(g, x, targets(t, g, "centos/main", "5.1")); !reflect.DeepEqual(got, want) {
+		t.Errorf("Followups = %v, want %v", got, want)
+	}
+}
+
+// A branch that picked a patch and merged a stable release with its
+// backport has one change: reverting the pick after the merge takes the
+// patch out, reverting it before the merge leaves the backport.
+func TestRevertPickAroundMerge(t *testing.T) {
+	r := newRepo(t)
+	r.commit("init")
+	r.git("tag", "v5.0")
+	x := r.commit("checkpatch: add a tag")
+	r.git("tag", "v5.1")
+	r.git("checkout", "-q", "-b", "linux-5.0.y", "v5.0")
+	backport := r.commit("checkpatch: add a tag\n\ncommit " + x + " upstream.")
+	r.git("tag", "v5.0.1")
+	for _, after := range []bool{true, false} {
+		branch := map[bool]string{true: "after", false: "before"}[after]
+		r.git("checkout", "-q", "-b", branch, "v5.0")
+		pick := r.commit("UPSTREAM: checkpatch: add a tag\n\n(cherry picked from commit " + x + ")")
+		revert := "Revert \"UPSTREAM: checkpatch: add a tag\"\n\nThis reverts commit " + pick + "."
+		if !after {
+			r.commit(revert)
+		}
+		r.clock += 3600
+		r.git("merge", "-q", "--no-ff", "-m", "Merge 5.0.1", "v5.0.1")
+		if after {
+			r.commit(revert)
+		}
+		r.git("update-ref", "refs/remotes/android/"+branch, "HEAD")
+	}
+	r.git("checkout", "-q", "master")
+	g := build(t, r.dir, kernel.Remotes{Vendors: []string{"android"}})
+	want := []Presence{{Series: "android/after"}, {Series: "android/before", Commit: backport}}
+	if got := inSeriesOf(g, x, targets(t, g, "android/after", "android/before")); !slices.Equal(got, want) {
+		t.Errorf("InSeries = %v, want %v", got, want)
+	}
+}
