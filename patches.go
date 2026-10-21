@@ -5,9 +5,9 @@ import "cmp"
 // patches tie each commit to its patch, the change itself: the pool
 // commits that are one patch merged more than once, its copies, with the
 // backports of any of them. A patch goes by its canonical copy, the one in
-// the earliest release, untagged ones last. A backport belongs to the
-// patch of its upstream; any other commit outside the pool is a patch of
-// its own.
+// the earliest release, untagged ones last and a mainline one before a
+// next one. A backport belongs to the patch of its upstream; any other
+// commit outside the pool is a patch of its own.
 type patches struct {
 	of      []uint32 // the canonical copy of the patch of each commit
 	members []uint32 // the copies of each patch under its canonical copy, canonical first
@@ -122,9 +122,15 @@ func findCopies(p *pass, named []int32, twins []twin) (copyOf []uint32, nTwins i
 }
 
 // canonical orders the copies of a patch: by their first tags, untagged
-// ones last, then by date.
+// ones last, a mainline one before a next one, then by date.
 func (p *pass) canonical(a, b uint32) int {
-	return cmp.Or(cmp.Compare(uint32(p.firstTag[a]), uint32(p.firstTag[b])), p.byDate(a, b))
+	notMainline := func(c uint32) int {
+		if p.mainline[c] {
+			return 0
+		}
+		return 1
+	}
+	return cmp.Or(cmp.Compare(uint32(p.firstTag[a]), uint32(p.firstTag[b])), cmp.Compare(notMainline(a), notMainline(b)), p.byDate(a, b))
 }
 
 // findPatches finds the patch of every commit: a pool commit's is that of

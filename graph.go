@@ -1,8 +1,8 @@
 // Package kgraph builds the commit graph of a kernel tree in memory:
-// every commit of mainline, of the stable linux-*.y branches and of the v*
-// release tags, with the first tag that contains it, the mainline commit a
-// backport was made from, and the commits its Fixes: tags and revert line
-// name.
+// every commit of mainline, of the stable linux-*.y branches, of the v*
+// release tags and of linux-next when the tree has it, with the first tag
+// that contains it, the mainline commit a backport was made from, and the
+// commits its Fixes: tags and revert line name.
 //
 // A build runs in stages, each making what the next one reads:
 //
@@ -79,8 +79,13 @@ type Options struct {
 	// they mean, as verhaal's fixes.txt, or "" for none.
 	Fixes string
 	// NoStable leaves the stable branches and the stable release tags out,
-	// so that the graph holds mainline alone.
+	// so that the graph holds mainline alone, and linux-next when the tree
+	// has it.
 	NoStable bool
+	// Next is the linux-next ref to read instead of the master branch of
+	// the next remote, such as next-20261001 or next/pending-fixes; it
+	// needs a next remote.
+	Next string
 }
 
 // Build reads the graph of the trees of l.

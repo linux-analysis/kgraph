@@ -17,7 +17,7 @@ type topology struct {
 	firstTag []int32  // index into tags, none when no tag contains the commit
 	gen      []uint32 // one more than the highest generation of the parents, 1 for a root
 	tagAt    map[uint32]int32
-	kinds    [stableTree + 1]uint64
+	kinds    [nextTree + 1]uint64
 	walks    *sync.Pool // of *walk, for ancestor
 }
 
@@ -101,9 +101,11 @@ func (t *topology) in(i uint32, k treeKind) bool { return t.reach[i]&t.kinds[k] 
 // mainline tag reaches it.
 func (t *topology) mainline(i uint32) bool { return t.in(i, mainlineTree) }
 
-// pooled tells whether commit i is a patch in its own right, mainline, and
-// so no backport.
-func (t *topology) pooled(i uint32) bool { return t.mainline(i) }
+// pooled tells whether commit i is a patch in its own right, mainline or
+// linux-next, and so no backport.
+func (t *topology) pooled(i uint32) bool {
+	return t.reach[i]&(t.kinds[mainlineTree]|t.kinds[nextTree]) != 0
+}
 
 // treeOf names the tree of commit i: the first of the trees that reach it,
 // mainline first.

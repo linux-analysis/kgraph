@@ -51,7 +51,7 @@ commands:
   reverts HASH...        what it reverts, and whether it was reverted
   release TAG...         the mainline release a tag or version belongs to
   tags                   the mainline release tags of the tree
-  remotes                the mainline and stable remotes
+  remotes                the mainline, stable and linux-next remotes
   series                 the stable series kernel.org supports
 
 A HASH may be -, which reads hashes from standard input in its place,
@@ -70,7 +70,7 @@ flags:
 var version = "dev"
 
 type opts struct {
-	tree, cache, fixes, series       string
+	tree, cache, fixes, series, next string
 	json, adapted, version, noStable bool
 }
 
@@ -86,6 +86,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones (default: one per tree under the user cache directory)")
 	fs.StringVar(&o.fixes, "fixes", "", "file of Fixes: ids that name no commit and the commits they mean, such as fixes.txt of the kgraph source")
 	fs.BoolVar(&o.noStable, "no-stable", false, "leave the stable branches and releases out: the graph holds mainline alone")
+	fs.StringVar(&o.next, "next", "", "linux-next ref to read instead of the next remote's master, such as next-20261001 or next/pending-fixes")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
 	fs.StringVar(&o.series, "series", "", "where, followups: the stable series to answer for, comma-separated, such as 6.6,6.1 (default: the series kernel.org supports)")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
@@ -218,7 +219,7 @@ func discover(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Layout, er
 			log.Warn("no cache directory: every build reads every commit", "err", err)
 		}
 	}
-	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: cache, Fixes: o.fixes, NoStable: o.noStable})
+	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: cache, Fixes: o.fixes, NoStable: o.noStable, Next: o.next})
 }
 
 func build(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Graph, error) {
@@ -431,7 +432,7 @@ func lookups(ctx context.Context, o opts, g *kgraph.Graph, args []string) ([]kgr
 	lines := strings.Split(string(out), "\n")
 	notIn := "is not in the graph: no branch or tag it reads reaches it"
 	if o.noStable {
-		notIn = "is not in the graph, which --no-stable leaves to mainline"
+		notIn = "is not in the graph, which --no-stable leaves to mainline and linux-next"
 	}
 	for k, i := range unknown {
 		// A commit's line is "<hash> commit <size>", an unknown id's says
@@ -704,7 +705,7 @@ func remotes(ctx context.Context, o opts, out io.Writer) error {
 		return err
 	}
 	return print(out, o, rem, func() {
-		fmt.Fprintf(out, "mainline: %s\nstable: %s\n", rem.Mainline, rem.Stable)
+		fmt.Fprintf(out, "mainline: %s\nstable: %s\nnext: %s\n", rem.Mainline, rem.Stable, rem.Next)
 	})
 }
 

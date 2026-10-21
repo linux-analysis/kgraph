@@ -2,6 +2,7 @@ package kgraph
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -31,10 +32,11 @@ type treeKind uint8
 const (
 	mainlineTree treeKind = iota
 	stableTree
+	nextTree
 )
 
 // tree is a group of tips whose commits share a name: the mainline branch
-// and tags, or the stable branches and tags.
+// and tags, the stable branches and tags, or linux-next.
 type tree struct {
 	name string
 	kind treeKind
@@ -54,6 +56,9 @@ type tag struct {
 // remote whose ref is missing, as when its first fetch failed, is an
 // error: HEAD may be a stable branch. A commit that only other refs reach
 // is not in the graph.
+//
+// The master branch of rem's next remote, or o.Next, is linux-next, a tree
+// of its own; a next remote whose branch is missing is an error too.
 func Discover(ctx context.Context, dir string, rem kernel.Remotes, o Options) (*Layout, error) {
 	if o.NoStable {
 		rem.Stable = ""
@@ -99,6 +104,16 @@ func Discover(ctx context.Context, dir string, rem kernel.Remotes, o Options) (*
 		}
 	}
 	l.trees = []tree{{"mainline", mainlineTree, mainline}, {"stable", stableTree, stable}}
+	switch {
+	case rem.Next != "":
+		h, err := tipOf(ctx, dir, cmp.Or(o.Next, rem.NextRef()))
+		if err != nil {
+			return nil, err
+		}
+		l.trees = append(l.trees, tree{"next", nextTree, []hash{h}})
+	case o.Next != "":
+		return nil, fmt.Errorf("kernel tree %s has no linux-next remote to read %s from", dir, o.Next)
+	}
 	out, err := git.Run(ctx, dir, nil, "rev-parse", "--is-shallow-repository")
 	l.shallow = err == nil && strings.TrimSpace(string(out)) == "true"
 	return l, nil

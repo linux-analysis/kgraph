@@ -15,7 +15,7 @@ type pass struct {
 	*store
 	*topology
 	n        int
-	pool     []bool // pooled, per commit: the patches in their own right
+	pool     []bool // pooled, per commit: mainline and linux-next, the patches in their own right
 	mainline []bool
 	idents   keyed // the pool by author and subject
 	subjects keyed // mainline by subject

@@ -196,6 +196,10 @@ func TestLookupAndFixes(t *testing.T) {
 	if code != 0 || !strings.HasPrefix(out, fix+"\treverted false\nzz\tis not a commit id\n") {
 		t.Errorf("reverts = %q, %d", out, code)
 	}
+	if out, code := capture(t, "--tree", dir, "--next", "bogus", "lookup", fix); code != 1 || !strings.Contains(out, "linux-next") {
+		t.Errorf("--next without a linux-next remote = %q, %d, want 1", out, code)
+	}
+
 	// A miss says why: no commit id, a commit the graph does not read, no
 	// commit at all; JSON names it too, and a reverts row of a miss tells
 	// no reverted.
@@ -204,7 +208,7 @@ func TestLookupAndFixes(t *testing.T) {
 		!strings.Contains(out, strings.Repeat("0", 40)+"\tnames no commit\n") {
 		t.Errorf("lookup of misses = %q, %d", out, code)
 	}
-	if out, _ := capture(t, "--tree", dir, "--no-stable", "lookup", side[:12]); !strings.Contains(out, side[:12]+"\tis not in the graph, which --no-stable leaves to mainline") {
+	if out, _ := capture(t, "--tree", dir, "--no-stable", "lookup", side[:12]); !strings.Contains(out, side[:12]+"\tis not in the graph, which --no-stable leaves to mainline and linux-next") {
 		t.Errorf("lookup --no-stable of a miss = %q", out)
 	}
 	out, code = capture(t, "--tree", dir, "--json", "reverts", "v6.1", side, fix)

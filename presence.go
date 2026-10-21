@@ -25,9 +25,10 @@ type step struct {
 
 // timeline lists the commits that apply or undo the patch c: its copies
 // and backports apply it, a commit that reverts one of these undoes it,
-// and a revert of that revert applies it again. A mainline revert brings
-// the copies and backports of its own patch along: a backport of a revert
-// undoes what the revert undoes, whatever its message names. A backport that reverts a stable-only commit is none of them.
+// and a revert of that revert applies it again. A mainline or linux-next
+// revert brings the copies and backports of its own patch along: a
+// backport of a revert undoes what the revert undoes, whatever its message
+// names. A backport that reverts a stable-only commit is none of them.
 // They come in the order before gives.
 func (g *Graph) timeline(c uint32) []step {
 	var steps []step

@@ -34,9 +34,19 @@ Run the same fetch to bring it up to date. Without a stable remote only
 the release tags reach stable commits, and without a mainline remote
 HEAD stands for mainline.
 
+A linux-next remote, found by its URL, adds its `master` as a tip:
+
+    git remote add next --no-tags -t master https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git
+
+linux-next is rebuilt daily: the first build after a fetch reads its new
+commits and drops the old ones from the cache. `--next REF` reads
+another ref of it instead, such as a `next-20261001` tag (fetch them
+with `git fetch next 'refs/tags/next-*:refs/tags/next-*'`) or
+`next/pending-fixes`, and fails when the remote or the ref is missing.
+
 The graph is built from the mainline branch, the `linux-*.y` branches of
-the stable remote and the `v*` release tags. The commits read are kept
-in a cache file, one per tree under `~/.cache/kgraph/` (or
+the stable remote, the `v*` release tags and linux-next. The commits
+read are kept in a cache file, one per tree under `~/.cache/kgraph/` (or
 `$XDG_CACHE_HOME/kgraph`), that the next build maps into memory and adds
 only the new commits to, dropping those no branch or tag reaches any
 more, as after a rebase; `--cache FILE` names the file instead. `kgraph
@@ -52,22 +62,22 @@ mainline alone; it keeps a cache file of its own, and `where` and
     $ kgraph lookup dae8dda341d2
     dae8dda341d2d9034a90d59e8a7d502e1263813f	mainline	tag v7.3-rc2	release v7.3
 
-The second column is the tree: `mainline` or `stable`. Hashes may be
-abbreviated.
+The second column is the tree: `mainline`, `stable` or `next`. Hashes
+may be abbreviated.
 
 The other questions are about the commit's patch, the change itself: the
-mainline commits that are the same patch merged more than once, its
-copies, with the stable backports of any of them. A backport stands for
-its upstream, a copy for every copy, and an answer names each patch by
-its canonical copy, the one in the earliest release. `where` tells which
-stable series have a commit, through the series' base release or a
-backport, and since which release; a revert the series has takes out
-what it reverts, and a revert of that revert brings it back. A series
-that picked a patch twice and reverted the second pick as a duplicate
-still has it, while copies a merge made one change go out together, and
-a backport of a mainline revert undoes what the revert undoes, whatever
-its message names. `--series` names the series, and without it they are
-the series kernel.org supports:
+mainline and linux-next commits that are the same patch merged more than
+once, its copies, with the stable backports of any of them. A backport
+stands for its upstream, a copy for every copy, and an answer names each
+patch by its canonical copy, the one in the earliest release. `where`
+tells which stable series have a commit, through the series' base
+release or a backport, and since which release; a revert the series has
+takes out what it reverts, and a revert of that revert brings it back. A
+series that picked a patch twice and reverted the second pick as a
+duplicate still has it, while copies a merge made one change go out
+together, and a backport of a mainline revert undoes what the revert
+undoes, whatever its message names. `--series` names the series, and
+without it they are the series kernel.org supports:
 
     $ kgraph --series 6.12,6.18,7.2 where dae8dda341d2
     dae8dda341d2d9034a90d59e8a7d502e1263813f	mainline	tag v7.3-rc2	release v7.3
@@ -77,8 +87,8 @@ the series kernel.org supports:
 
 `followups` lists the later fixes whose Fixes: tags name the patch and
 that a series with the patch never had, with their tag and subject; a
-fix mainline reverted is none, and a series that reverted a fix does not
-lack it:
+fix mainline reverted is none, a series that reverted a fix does not
+lack it, and a fix still in linux-next shows `next` in place of a tag:
 
     $ kgraph --series 6.18,7.2 followups dae8dda341d2
     dae8dda341d2d9034a90d59e8a7d502e1263813f	5cbea500775dd1944995f23320af030b9b24b24b	6.18	v7.3-rc2	tracing: Fix comment in tracing_buffers_splice_read()

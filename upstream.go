@@ -17,8 +17,9 @@ func findNamed(p *pass) []int32 {
 	return named
 }
 
-// findUpstreams finds the mainline commit each backport was made from; a
-// mainline commit has none.
+// findUpstreams finds the mainline commit each backport was made from. A
+// mainline commit has no upstream, and neither has a linux-next commit: it
+// is a patch on its way to mainline.
 //
 // The strategies, in order:
 //   - the message: the commit named names, which must be mainline;

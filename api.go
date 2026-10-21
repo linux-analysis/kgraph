@@ -43,7 +43,8 @@ func (c Commit) Hash() string { return c.g.hashes[c.i].String() }
 // commit.
 func (c Commit) Mainline() bool { return c.g.mainline(c.i) }
 
-// Tree is where the commit is: mainline, else stable.
+// Tree is where the commit is: mainline, else the first of stable and next
+// that has it.
 func (c Commit) Tree() string { return c.g.treeOf(c.i) }
 
 // Date is the committer date, Unix time.
@@ -113,18 +114,19 @@ func (g *Graph) commits(list []uint32) []Commit {
 	return out
 }
 
-// Patch is a change: the mainline commits that are the same patch merged
-// more than once, its copies, with the stable commits backported from any
-// of them. Every question about a change is a question about its patch,
-// whichever of its commits names it. A commit outside mainline that is no
-// backport is a patch of its own.
+// Patch is a change: the mainline and linux-next commits that are the
+// same patch merged more than once, its copies, with the stable commits
+// backported from any of them. Every question about a change is a
+// question about its patch, whichever of its commits names it. A commit
+// outside mainline and linux-next that is no backport is a patch of its
+// own.
 type Patch struct {
 	g *Graph
 	c uint32 // the canonical copy
 }
 
 // Commit is the canonical copy of the patch: the copy in the earliest
-// release, untagged ones last.
+// release, untagged ones last and a mainline one before a linux-next one.
 func (p Patch) Commit() Commit { return Commit{p.g, p.c} }
 
 // Copies are the copies of the patch, canonical first.

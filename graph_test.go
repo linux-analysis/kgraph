@@ -800,3 +800,69 @@ func TestBuildNoStable(t *testing.T) {
 		t.Errorf("Backports = %v, want none", got)
 	}
 }
+
+// linux-next is a tree of its own: its commits are in the graph under the
+// tree next, are no backports, fix mainline commits and tie to their
+// mainline twins, and leave the cache when next is rebuilt without them.
+func TestBuildNext(t *testing.T) {
+	k := newKernel(t)
+	k.git("checkout", "-q", "-b", "next", k.m["tip"])
+	fix := k.commit("fs: fix again more\n\nFixes: " + k.m["again"][:12] + " (\"fs: fix again\")")
+	pick := k.commit("fs: fix again\n\n(cherry picked from commit " + k.m["again"] + ")")
+	k.git("update-ref", "refs/remotes/next/master", "HEAD")
+	k.git("checkout", "-q", "master")
+	rem := remotes
+	rem.Next = "next"
+	cache := filepath.Join(t.TempDir(), "graph.cache")
+	g, log := buildWith(t, k.dir, rem, cache)
+	n := len(g.hashes)
+	wantLog(t, log, fmt.Sprintf("commits=%d cached=0 streamed=%d dropped=0", n, n))
+	if c := lookup(t, g, fix); c.Mainline || c.Tree != "next" || c.Tag != "" || c.Upstream != "" {
+		t.Errorf("next fix = %+v", c)
+	}
+	if c := lookup(t, g, pick); c.Tree != "next" || c.Upstream != "" {
+		t.Errorf("next pick = %+v, want no upstream", c)
+	}
+	for h, want := range map[string]string{k.m["fix"]: "mainline", k.s["fix60"]: "stable"} {
+		if c := lookup(t, g, h); c.Tree != want {
+			t.Errorf("%s: tree %q, want %q", h, c.Tree, want)
+		}
+	}
+	if got := fixedByOf(g, k.m["again"]); !slices.Equal(got, []string{fix}) {
+		t.Errorf("FixedBy = %v, want %v", got, fix)
+	}
+	if got := copiesOf(g, pick); !slices.Equal(got, []string{k.m["again"], pick}) {
+		t.Errorf("Copies = %v, want the mainline copy first", got)
+	}
+	if got := backportsOf(g, k.m["again"]); len(got) != 0 {
+		t.Errorf("Backports = %v, want none: a next copy is no backport", got)
+	}
+	if got := followupsOf(g, k.m["again"], targets(t, g, "5.15", "6.0")); len(got) != 1 || got[0].Hash != fix || !slices.Equal(got[0].Series, []string{"5.15"}) {
+		t.Errorf("Followups = %+v, want the next fix, lacking in 5.15", got)
+	}
+
+	before, err := os.Stat(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, log = buildWith(t, k.dir, rem, cache)
+	wantLog(t, log, fmt.Sprintf("commits=%d cached=%d streamed=0 dropped=0", n, n))
+	if after, err := os.Stat(cache); err != nil || !os.SameFile(before, after) {
+		t.Errorf("an unchanged next rewrote the cache (%v)", err)
+	}
+	k.git("update-ref", "refs/remotes/next/master", k.m["tip"])
+	g, log = buildWith(t, k.dir, rem, cache)
+	wantLog(t, log, fmt.Sprintf("commits=%d cached=%d streamed=0 dropped=2", n-2, n))
+	if _, ok := lookupOf(g, fix); ok || strings.Contains(log, "does not fit") {
+		t.Errorf("rebuilt next: fix found %v, log %s", ok, log)
+	}
+	if g, log = buildWith(t, k.dir, remotes, cache); len(g.hashes) != n-2 || strings.Contains(log, "does not fit") {
+		t.Errorf("without a next remote: %d commits, log %s", len(g.hashes), log)
+	}
+	if _, err := buildTree(ctx, k.dir, rem, Options{Next: "nonexistent"}, quiet); err == nil || err.Error() != "kernel tree "+k.dir+" has no nonexistent" {
+		t.Errorf("an unresolvable next ref: %v, want it named alone", err)
+	}
+	if _, err := buildTree(ctx, k.dir, remotes, Options{Next: "refs/remotes/next/master"}, quiet); err == nil {
+		t.Error("a next ref without a next remote built")
+	}
+}

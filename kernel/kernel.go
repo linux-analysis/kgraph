@@ -14,10 +14,12 @@ import (
 	"github.com/linux-analysis/kgraph/internal/git"
 )
 
-// Remotes names the remotes that track mainline and stable.
+// Remotes names the remotes that track mainline, stable and linux-next,
+// Next being "" when the tree has no linux-next.
 type Remotes struct {
 	Mainline string `json:"mainline"`
 	Stable   string `json:"stable"`
+	Next     string `json:"next,omitempty"`
 }
 
 // MainlineRef is the ref that defines mainline membership.
@@ -25,16 +27,25 @@ func (r Remotes) MainlineRef() string {
 	return "refs/remotes/" + r.Mainline + "/master"
 }
 
-// Remote URLs of the mainline and stable trees, in URL and scp-style
-// ("git@host:path") form; the stable tree also goes by linux-stable.
+// NextRef is the linux-next branch, rebuilt daily.
+func (r Remotes) NextRef() string {
+	return "refs/remotes/" + r.Next + "/master"
+}
+
+// Remote URLs of the mainline, stable and linux-next trees, in URL and
+// scp-style ("git@host:path") form; the stable tree also goes by
+// linux-stable. linux-next is found by URL only: a remote merely named
+// next may be anything, and a next remote whose branch is missing fails
+// the build.
 var (
 	mainlineURLRe = regexp.MustCompile(`[/:]torvalds/linux(\.git)?$`)
 	stableURLRe   = regexp.MustCompile(`[/:]stable/linux(-stable)?(\.git)?$`)
+	nextURLRe     = regexp.MustCompile(`[/:]linux-next(\.git)?$`)
 )
 
-// FindRemotes finds the remotes for torvalds/linux and stable/linux by
-// URL, falling back to remotes literally named mainline and stable; a
-// remote it does not find is left empty.
+// FindRemotes finds the remotes for torvalds/linux, stable/linux and
+// linux-next by URL, falling back to remotes literally named mainline and
+// stable; a remote it does not find is left empty.
 func FindRemotes(ctx context.Context, dir string) (Remotes, error) {
 	out, err := git.Run(ctx, dir, nil, "remote", "-v")
 	if err != nil {
@@ -57,6 +68,10 @@ func FindRemotes(ctx context.Context, dir string) (Remotes, error) {
 		case stableURLRe.MatchString(url):
 			if rem.Stable == "" {
 				rem.Stable = name
+			}
+		case nextURLRe.MatchString(url):
+			if rem.Next == "" {
+				rem.Next = name
 			}
 		}
 	}

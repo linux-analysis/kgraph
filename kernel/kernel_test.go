@@ -130,7 +130,7 @@ func TestFindRemotes(t *testing.T) {
 	// Resolution by URL only: no fetch happens here, so the real kernel.org
 	// URLs are safe to register.
 	gitRun(t, fx.dir, "remote", "add", "vanilla", "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git")
-	if rem, err := FindRemotes(ctx, fx.dir); err != nil || rem.Mainline != "vanilla" || rem.Stable != "" {
+	if rem, err := FindRemotes(ctx, fx.dir); err != nil || rem.Mainline != "vanilla" || rem.Stable != "" || rem.Next != "" {
 		t.Errorf("mainline only: %+v %v", rem, err)
 	}
 	gitRun(t, fx.dir, "remote", "add", "stable", "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/")
@@ -140,6 +140,17 @@ func TestFindRemotes(t *testing.T) {
 	}
 	gitRun(t, fx.dir, "remote", "remove", "vanilla")
 	gitRun(t, fx.dir, "remote", "remove", "stable")
+
+	// linux-next by URL only: a remote merely named next is not it.
+	gitRun(t, fx.dir, "remote", "add", "next", filepath.Join(t.TempDir(), "next.git"))
+	if rem, err := FindRemotes(ctx, fx.dir); err != nil || rem.Next != "" {
+		t.Errorf("next by name: %+v %v", rem, err)
+	}
+	gitRun(t, fx.dir, "remote", "set-url", "next", "https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git")
+	if rem, err := FindRemotes(ctx, fx.dir); err != nil || rem.Next != "next" || rem.NextRef() != "refs/remotes/next/master" {
+		t.Errorf("next by url: %+v %v", rem, err)
+	}
+	gitRun(t, fx.dir, "remote", "remove", "next")
 
 	// Other common spellings: scp-style SSH and the older linux-stable name.
 	for _, tc := range []struct{ mainline, stable string }{
