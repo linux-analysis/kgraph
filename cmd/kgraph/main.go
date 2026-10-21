@@ -70,8 +70,8 @@ flags:
 var version = "dev"
 
 type opts struct {
-	tree, cache, fixes, series string
-	json, adapted, version     bool
+	tree, cache, fixes, series       string
+	json, adapted, version, noStable bool
 }
 
 func main() {
@@ -85,6 +85,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.tree, "tree", ".", "git repository of the kernel tree, a checkout or a bare clone")
 	fs.StringVar(&o.cache, "cache", "", "file that keeps the commits read, so that the next build reads only the new ones (default: one per tree under the user cache directory)")
 	fs.StringVar(&o.fixes, "fixes", "", "file of Fixes: ids that name no commit and the commits they mean, such as fixes.txt of the kgraph source")
+	fs.BoolVar(&o.noStable, "no-stable", false, "leave the stable branches and releases out: the graph holds mainline alone")
 	fs.BoolVar(&o.adapted, "adapted", false, "backports: compare each backport's diff with its upstream commit's")
 	fs.StringVar(&o.series, "series", "", "where, followups: the stable series to answer for, comma-separated, such as 6.6,6.1 (default: the series kernel.org supports)")
 	fs.BoolVar(&o.json, "json", false, "print JSON")
@@ -213,11 +214,11 @@ func discover(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Layout, er
 	}
 	cache := o.cache
 	if cache == "" {
-		if cache, err = defaultCache(ctx, o.tree); err != nil {
+		if cache, err = defaultCache(ctx, o.tree, o.noStable); err != nil {
 			log.Warn("no cache directory: every build reads every commit", "err", err)
 		}
 	}
-	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: cache, Fixes: o.fixes})
+	return kgraph.Discover(ctx, o.tree, rem, kgraph.Options{Cache: cache, Fixes: o.fixes, NoStable: o.noStable})
 }
 
 func build(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Graph, error) {
@@ -230,8 +231,9 @@ func build(ctx context.Context, o opts, log *slog.Logger) (*kgraph.Graph, error)
 
 // defaultCache is the cache file of the tree at tree: one per repository,
 // wherever in it tree is, under the user's cache directory,
-// $XDG_CACHE_HOME/kgraph or ~/.cache/kgraph on Linux.
-func defaultCache(ctx context.Context, tree string) (string, error) {
+// $XDG_CACHE_HOME/kgraph or ~/.cache/kgraph on Linux. A mainline-only
+// build has its own, so that the two modes never rebuild each other's.
+func defaultCache(ctx context.Context, tree string, mainlineOnly bool) (string, error) {
 	gitDir, err := git.Run(ctx, tree, nil, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return "", err
@@ -245,7 +247,11 @@ func defaultCache(ctx context.Context, tree string) (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256(bytes.TrimSpace(gitDir))
-	return filepath.Join(dir, hex.EncodeToString(sum[:6])+".cache"), nil
+	name := hex.EncodeToString(sum[:6])
+	if mainlineOnly {
+		name += "-mainline"
+	}
+	return filepath.Join(dir, name+".cache"), nil
 }
 
 // asked is a hash asked about: the full one when the graph has its commit,
@@ -423,6 +429,10 @@ func lookups(ctx context.Context, o opts, g *kgraph.Graph, args []string) ([]kgr
 		return nil, nil, err
 	}
 	lines := strings.Split(string(out), "\n")
+	notIn := "is not in the graph: no branch or tag it reads reaches it"
+	if o.noStable {
+		notIn = "is not in the graph, which --no-stable leaves to mainline"
+	}
 	for k, i := range unknown {
 		// A commit's line is "<hash> commit <size>", an unknown id's says
 		// missing or ambiguous.
@@ -431,7 +441,7 @@ func lookups(ctx context.Context, o opts, g *kgraph.Graph, args []string) ([]kgr
 			f = strings.Fields(lines[k])
 		}
 		if len(f) == 3 && f[1] == "commit" {
-			rows[i].Missing, rows[i].why = "not-in-graph", "is not in the graph: no branch or tag it reads reaches it"
+			rows[i].Missing, rows[i].why = "not-in-graph", notIn
 		} else {
 			rows[i].Missing, rows[i].why = "no-commit", "names no commit"
 		}
@@ -470,6 +480,9 @@ func query(ctx context.Context, o opts, cmd string, args []string, in io.Reader,
 	}
 	if len(args) == 0 {
 		return fmt.Errorf("%w: %s takes commit hashes", errUsage, cmd)
+	}
+	if o.noStable && (cmd == "where" || cmd == "followups") {
+		return fmt.Errorf("%w: %s answers for stable series, which --no-stable leaves out", errUsage, cmd)
 	}
 	l, err := discover(ctx, o, log)
 	if err != nil {

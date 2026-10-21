@@ -120,6 +120,15 @@ func TestLookupAndFixes(t *testing.T) {
 	if files, _ := filepath.Glob(filepath.Join(caches, "kgraph", "*.cache")); len(files) != 1 {
 		t.Errorf("cache files under the user cache directory: %v, want one", files)
 	}
+	if out, code := capture(t, "--no-stable", "lookup", fix); code != 0 || !strings.Contains(out, fix+"\tmainline") {
+		t.Errorf("lookup --no-stable = %q, %d", out, code)
+	}
+	if files, _ := filepath.Glob(filepath.Join(caches, "kgraph", "*-mainline.cache")); len(files) != 1 {
+		t.Errorf("mainline-only cache files: %v, want one", files)
+	}
+	if out, code := capture(t, "--no-stable", "--series", "6.1", "where", fix); code != 2 || !strings.Contains(out, "--no-stable") {
+		t.Errorf("where --no-stable = %q, %d, want a usage error", out, code)
+	}
 	cache := filepath.Join(t.TempDir(), "graph.cache")
 	out, code = capture(t, "--tree", dir, "--cache", cache, "lookup", fix, strings.Repeat("0", 40))
 	if code != 0 || !strings.Contains(out, fix+"\tmainline\ttag v6.2-rc1\trelease v6.2") || !strings.Contains(out, "names no commit") {
@@ -194,6 +203,9 @@ func TestLookupAndFixes(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "v6.1\tis not a commit id\n") || !strings.Contains(out, side+"\tis not in the graph: no branch or tag it reads reaches it\n") ||
 		!strings.Contains(out, strings.Repeat("0", 40)+"\tnames no commit\n") {
 		t.Errorf("lookup of misses = %q, %d", out, code)
+	}
+	if out, _ := capture(t, "--tree", dir, "--no-stable", "lookup", side[:12]); !strings.Contains(out, side[:12]+"\tis not in the graph, which --no-stable leaves to mainline") {
+		t.Errorf("lookup --no-stable of a miss = %q", out)
 	}
 	out, code = capture(t, "--tree", dir, "--json", "reverts", "v6.1", side, fix)
 	if code != 0 || !strings.Contains(out, `"missing": "not-an-id"`) || !strings.Contains(out, `"missing": "not-in-graph"`) || strings.Count(out, `"reverted"`) != 1 {

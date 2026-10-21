@@ -774,3 +774,29 @@ func TestBuildStops(t *testing.T) {
 		t.Errorf("cancelled: got %v", err)
 	}
 }
+
+// NoStable leaves every stable commit out and changes nothing about
+// mainline.
+func TestBuildNoStable(t *testing.T) {
+	k := newKernel(t)
+	var log bytes.Buffer
+	g, err := buildTree(ctx, k.dir, remotes, Options{NoStable: true}, slog.New(slog.NewTextHandler(&log, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLog(t, log.String(), "series=0")
+	for name, h := range k.s {
+		if _, ok := lookupOf(g, h); ok {
+			t.Errorf("stable commit %s is in the graph", name)
+		}
+	}
+	if c := lookup(t, g, k.m["fix"]); !c.Mainline || c.Tag != "v6.1-rc1" {
+		t.Errorf("fix = %+v, want mainline in v6.1-rc1", c)
+	}
+	if got := fixesOf(g, k.m["fix"]); !slices.Equal(got, []string{k.m["add"]}) {
+		t.Errorf("Fixes = %v, want %v", got, k.m["add"])
+	}
+	if got := backportsOf(g, k.m["fix"]); len(got) != 0 {
+		t.Errorf("Backports = %v, want none", got)
+	}
+}

@@ -77,6 +77,9 @@ type Options struct {
 	// Fixes is a file of Fixes: ids that name no commit and the commits
 	// they mean, as verhaal's fixes.txt, or "" for none.
 	Fixes string
+	// NoStable leaves the stable branches and the stable release tags out,
+	// so that the graph holds mainline alone.
+	NoStable bool
 }
 
 // Build reads the graph of the trees of l.

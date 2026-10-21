@@ -55,6 +55,9 @@ type tag struct {
 // error: HEAD may be a stable branch. A commit that only other refs reach
 // is not in the graph.
 func Discover(ctx context.Context, dir string, rem kernel.Remotes, o Options) (*Layout, error) {
+	if o.NoStable {
+		rem.Stable = ""
+	}
 	mainRef := "HEAD"
 	if rem.Mainline != "" {
 		mainRef = rem.MainlineRef()
@@ -80,6 +83,9 @@ func Discover(ctx context.Context, dir string, rem kernel.Remotes, o Options) (*
 	l.series = len(branches)
 	if l.tags, err = listTags(ctx, dir); err != nil {
 		return nil, err
+	}
+	if o.NoStable {
+		l.tags = slices.DeleteFunc(l.tags, func(t tag) bool { return t.Stable })
 	}
 	// Mainline is what the mainline tip or a mainline tag reaches, so a
 	// mainline ref behind the tags fetched with the stable branches does not

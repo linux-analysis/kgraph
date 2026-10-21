@@ -39,7 +39,10 @@ the stable remote and the `v*` release tags. The commits read are kept
 in a cache file, one per tree under `~/.cache/kgraph/` (or
 `$XDG_CACHE_HOME/kgraph`), that the next build maps into memory and adds
 only the new commits to; `--cache FILE` names the file instead. `kgraph
-build` builds the graph and the cache and nothing else.
+build` builds the graph and the cache and nothing else. `--no-stable`
+leaves the stable branches and releases out, for a quicker build of
+mainline alone; it keeps a cache file of its own, and `where` and
+`followups` refuse it.
 
 ## Questions
 
