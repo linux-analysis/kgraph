@@ -119,9 +119,11 @@ func subjectOf(msg []byte) []byte {
 
 // upstreamRe matches the line by which a stable backport names the mainline
 // commit it was made from: mostly "commit <hash> upstream." or "[ Upstream
-// commit <hash> ]", but also such forms as "Upstream commit: <hash>" or
-// "(cherry picked from commit <hash>)".
-var upstreamRe = regexp.MustCompile(`(?mi)^[\[( ]*(?:comm(?:it|in) ([0-9a-f]{40})[\s\x{a0}]+upstream|upstream (?:commits?:? )?([0-9a-f]{40})|cherry picked from (?:commit|upstream) ([0-9a-f]{40}))`)
+// commit <hash> ]", but also such forms as "Upstream commit: <hash>",
+// "(cherry picked from commit <hash>)" or "This is upstream commit <hash>",
+// and the word commit with a colon or misspelt. A bare "<hash> upstream"
+// line is not one: reverts and reapplies quote it.
+var upstreamRe = regexp.MustCompile(`(?mi)^[\[( ]*(?:com+(?:it|in):?[\s\x{a0}]+([0-9a-f]{40})[\s\x{a0}]+upstream|upstream (?:com+its?:? )?([0-9a-f]{40})|cherry picked from (?:commit|upstream) ([0-9a-f]{40})|(?:this is|backport of) (?:the )?upstream commit ([0-9a-f]{40}))`)
 
 // namedUpstream returns the upstream commit that a backport's message
 // names, or "" when it names none.

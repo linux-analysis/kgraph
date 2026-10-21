@@ -12,7 +12,7 @@ import (
 // anything else, bump cacheVersion, so that no build mixes commits read
 // the old way with new ones, and set both to the new values.
 const (
-	parserDigest        = "9d8b9d7ad57d5c65"
+	parserDigest        = "460bec4687c02c57"
 	parserDigestVersion = 1
 )
 
@@ -22,6 +22,7 @@ var parserCorpus = []string{
 	"net: fix foo\n\ncommit 0123456789abcdef0123456789abcdef01234567 upstream.\n\nFixes: 89abcdef0123 (\"net: add foo\")\nSigned-off-by: A <a@example.com>\n",
 	"net: fix foo\n\n[ Upstream commit 0123456789abcdef0123456789abcdef01234567 ]\n\nFixes: commit 89abcdef0123\n",
 	"x: fix\n\nbody\n(cherry picked from commit 0123456789abcdef0123456789abcdef01234567)\nOrabug: 1\n",
+	"[ Backport of upstream commit 0123456789abcdef0123456789abcdef01234567 ]",
 	"Revert \"net: fix foo\"\n\nThis reverts commit\n0123456789abcdef0123456789abcdef01234567.\n",
 	"x: undo\n\nThis reverts 0123456, which broke y.\n",
 	"Revert \"x: add\"\n\nThis reverts upstream commit 0123456789abcdef0123456789abcdef01234567\nfrom stable.\n",
