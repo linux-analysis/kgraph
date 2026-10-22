@@ -205,9 +205,9 @@ func TestRevertBackportWithoutRevertLine(t *testing.T) {
 	}
 }
 
-// A series' own revert of its backport reverts that backport when it
-// names the upstream, as "This reverts upstream commit X from stable";
-// the mainline commit is no one's to revert.
+// A series' own revert of its backport reverts that backport, whether it
+// names the upstream, as "This reverts upstream commit X from stable", or
+// only quotes its subject; the mainline commit is no one's to revert.
 func TestOwnRevertOfBackport(t *testing.T) {
 	r := newRepo(t)
 	r.commit("init")
@@ -221,16 +221,23 @@ func TestOwnRevertOfBackport(t *testing.T) {
 	r.git("tag", "v5.1.1")
 	byID := r.commit("Revert \"random: use static branch\"\n\nThis reverts upstream commit " + x + "\nfrom stable.")
 	r.git("tag", "v5.1.2")
+	r.git("checkout", "-q", "-b", "linux-5.0.y", "v5.0")
+	b50 := r.commit("random: use static branch\n\ncommit " + x + " upstream.")
+	r.git("tag", "v5.0.1")
+	bySubject := r.commit("Revert \"random: use static branch\"\n\nIt broke 5.0.")
+	r.git("tag", "v5.0.2")
 	r.git("checkout", "-q", "master")
 	g := build(t, r.dir, kernel.Remotes{})
-	if got := revertsOf(g, byID); got != b51 {
-		t.Errorf("Reverts = %q, want %s", got, b51)
+	for revert, want := range map[string]string{byID: b51, bySubject: b50} {
+		if got := revertsOf(g, revert); got != want {
+			t.Errorf("Reverts(%s) = %q, want %s", revert, got, want)
+		}
 	}
 	if revertedOf(g, x) {
 		t.Error("the mainline commit is reverted")
 	}
-	want := []Presence{{Series: "5.1"}}
-	if got := inSeriesOf(g, x, targets(t, g, "5.1")); !slices.Equal(got, want) {
+	want := []Presence{{Series: "5.0"}, {Series: "5.1"}}
+	if got := inSeriesOf(g, x, targets(t, g, "5.0", "5.1")); !slices.Equal(got, want) {
 		t.Errorf("InSeries = %v, want %v", got, want)
 	}
 	if got := backportsOf(g, x); got != nil {
@@ -268,6 +275,32 @@ func TestVendorFixesNoFollowups(t *testing.T) {
 	}
 }
 
+// A vendor branch's revert of its own pick reverts that pick, though the
+// branch has the mainline commit too: SUSE's branches merge the history of
+// older ones, whose picks and reverts the merge leaves out of the code.
+func TestOwnRevertOfOldPick(t *testing.T) {
+	r := newRepo(t)
+	r.commit("init")
+	r.git("tag", "v5.0")
+	x := r.commit("nvme: allow 64-bit results")
+	r.git("tag", "v5.1")
+	r.git("checkout", "-q", "-b", "old", "v5.0")
+	pick := r.commitAs("suse@example.com", "nvme: allow 64-bit results (bnc#1 5.0.8).")
+	revert := r.commitAs("suse@example.com", "Revert \"nvme: allow 64-bit results\" (bnc#1 5.0.9).")
+	r.git("checkout", "-q", "-b", "sl", "v5.1")
+	r.clock += 3600
+	r.git("merge", "-q", "-s", "ours", "-m", "Merge the old history", "old")
+	r.git("update-ref", "refs/remotes/suse/sl", "HEAD")
+	r.git("checkout", "-q", "master")
+	g := build(t, r.dir, kernel.Remotes{Vendors: []string{"suse"}})
+	if got := revertsOf(g, revert); got != pick {
+		t.Errorf("Reverts = %q, want the pick %s", got, pick)
+	}
+	if got := inSeriesOf(g, x, targets(t, g, "suse/sl")); got[0].Commit != x {
+		t.Errorf("InSeries = %v, want it through %s", got, x)
+	}
+}
+
 // A branch that picked a patch and merged a stable release with its
 // backport has one change: reverting the pick after the merge takes the
 // patch out, reverting it before the merge leaves the backport.
@@ -300,6 +333,19 @@ func TestRevertPickAroundMerge(t *testing.T) {
 	want := []Presence{{Series: "android/after"}, {Series: "android/before", Commit: backport}}
 	if got := inSeriesOf(g, x, targets(t, g, "android/after", "android/before")); !slices.Equal(got, want) {
 		t.Errorf("InSeries = %v, want %v", got, want)
+	}
+}
+
+// A revert by the quoted subject reverts the commit before it, though the
+// commit applied again later has the subject too.
+func TestRevertSubjectOfLaterCommit(t *testing.T) {
+	r := newRepo(t)
+	x := r.commit("wifi: bump the FW API")
+	revert := r.commitAs("bob@example.com", "Revert \"wifi: bump the FW API\"\n\nIt broke.")
+	r.commit("wifi: bump the FW API")
+	g := build(t, r.dir, kernel.Remotes{})
+	if got := revertsOf(g, revert); got != x {
+		t.Errorf("Reverts = %q, want %s", got, x)
 	}
 }
 

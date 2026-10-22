@@ -12,7 +12,7 @@ import (
 // anything else, bump cacheVersion, so that no build mixes commits read
 // the old way with new ones, and set both to the new values.
 const (
-	parserDigest        = "8222f92108e257b9"
+	parserDigest        = "3f5ed3f63d459080"
 	parserDigestVersion = 1
 )
 
@@ -28,10 +28,12 @@ var parserCorpus = []string{
 	"x: fix two\n\ncommit 0123456789abcdef0123456789abcdef01234567\nAuthor: A <a@example.com>\n\n    x: one\n\ncommit 89abcdef0123456789abcdef0123456789abcdef\nAuthor: B <b@example.com>\n\n    x: two\n",
 	"Merge DRM changes from upstream v6.18..v6.19\n\nJIRA: https://issues.redhat.com/browse/RHEL-1\n\nCommit list:\ncommit 0123456789abcdef0123456789abcdef01234567\ncommit 89abcdef0123456789abcdef0123456789abcdef\n",
 	"Revert \"net: fix foo\"\n\nThis reverts commit\n0123456789abcdef0123456789abcdef01234567.\n",
+	"Revert \"net: fix foo\"\n\nIt broke the display.\n",
 	"x: undo\n\nThis reverts 0123456, which broke y.\n",
 	"Revert \"x: add\"\n\nThis reverts upstream commit 0123456789abcdef0123456789abcdef01234567\nfrom stable.\n",
 	"Revert \"Revert \"fs: fix again\"\"\n\nThis reverts commit 0123456789ab.\n",
 	"x: tidy\n\nThis partially reverts commit 0123456789ab (\"x: add\").\n",
+	"Revert \"x: add\"\n\nThis partly reverts 0123456789ab.\n",
 	"Revert commit 89abcdef0123 which is commit\n0123456789abcdef0123456789abcdef01234567 upstream.",
 	"mm: fix bar\n\n  Fixes: commit deadbeef1234 (\"net: add foo\")\nLink: https://lore.kernel.org/r/1/Fixes: 0123456789ab (\"Initial import\")\n",
 	"UPSTREAM: BACKPORT: net: fix foo\n\nBug: 1\n(cherry picked from commit 0123456789abcdef0123456789abcdef01234567)\n",

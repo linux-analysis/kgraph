@@ -54,11 +54,15 @@ func parseMessage(r *record, msg, lower []byte) {
 		}
 	}
 	if bytes.Contains(lower, []byte("reverts")) {
+		partial := false
 		for _, m := range revertRe.FindAllSubmatch(msg, -1) {
-			if m[1] == nil {
+			if partial = m[1] != nil; !partial {
 				r.revert.id = bytes.ToLower(m[2])
 				break
 			}
+		}
+		if partial {
+			r.revert = rawFix{} // not even the subject it quotes, then
 		}
 	}
 	r.fixes = tagLines(msg, lower, "fixes:", fixesRe)
@@ -131,6 +135,16 @@ func subjectOf(msg []byte) []byte {
 		lines++
 	}
 	return subject
+}
+
+// revertedSubject returns the subject that a Revert "..." subject quotes:
+// what the revert reverts when its message names no id.
+func revertedSubject(subject []byte) ([]byte, bool) {
+	inner, ok := bytes.CutPrefix(subject, []byte(`Revert "`))
+	if !ok || len(inner) < 2 || inner[len(inner)-1] != '"' {
+		return nil, false
+	}
+	return inner[:len(inner)-1], true
 }
 
 // upstreamRe matches the line by which a stable backport names the mainline

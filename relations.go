@@ -3,6 +3,7 @@ package kgraph
 import (
 	"bytes"
 	"cmp"
+	"math"
 	"slices"
 )
 
@@ -28,7 +29,7 @@ func findFixes(p *pass, copyOf []uint32) (fixes, fstart []uint32, st fixStats) {
 				continue
 			}
 			st.fixes++
-			t, how := p.find(fx.rawFix, copyOf)
+			t, how := p.find(fx.rawFix, copyOf, math.MaxInt64)
 			switch how {
 			case byTable:
 				st.tabled++

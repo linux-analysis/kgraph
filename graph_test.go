@@ -192,6 +192,10 @@ func newKernel(t *testing.T) *kernelRepo {
 	k.m["late"] = r.commit("arm: fix baz\n\nFixes: " + k.m["fix"][:6])
 	k.m["once"] = r.commit("fs: fix once")
 	k.m["again"] = r.commit("fs: fix again")
+	k.m["blank"] = r.commit("gpu: add blank")
+	// Reverts that name no id: of a subject one commit has, and of one two have.
+	k.m["unblank"] = r.commit("Revert \"gpu: add blank\"\n\nIt broke the display.")
+	k.m["untweak"] = r.commit("Revert \"x86: tweak\"\n\nOne of them.")
 	k.m["twin1"] = r.commit("drm: fix qux")
 	r.git("tag", "v6.2-rc2")
 	quxAt := r.clock
@@ -209,6 +213,10 @@ func newKernel(t *testing.T) *kernelRepo {
 	k.s["fix60"] = r.commit("net: fix foo\n\ncommit " + k.m["fix"] + " upstream.")
 	k.s["bar60"] = r.commitAs("ALICE@example.com", "mm: fix bar") // no upstream line: by author, in any case, and subject
 	r.git("tag", "v6.0.1")
+	// Reverts that name no id: the backport of a mainline one, and one of
+	// a commit the branch never had by that subject, which reverts nothing.
+	k.s["unblank60"] = r.commit("Revert \"gpu: add blank\"\n\ncommit " + k.m["unblank"] + " upstream.")
+	k.s["unonce60"] = r.commit("Revert \"fs: fix once\"\n\nIt broke 6.0.")
 	k.s["revert60"] = r.commit("Revert \"net: fix foo\"\n\nThis reverts commit " + k.s["fix60"] + " which is\ncommit " + k.m["fix"] + " upstream.")
 	k.s["tweak60"] = r.commitAs("bob@example.com", "x86: tweak") // two mainline candidates
 	k.s["qux60"] = r.commitAt(quxAt, "alice@example.com", "drm: fix qux\n\ncommit "+k.m["twin1"]+" upstream.")
@@ -491,7 +499,19 @@ func TestBuild(t *testing.T) {
 	if got := revertsOf(g, k.m["fix"]); got != "" {
 		t.Errorf("not a revert: got %q", got)
 	}
-	if !revertedOf(g, k.m["fix"]) || !revertedOf(g, k.s["fix60"]) || revertedOf(g, k.m["add"]) || revertedOf(g, k.other) {
+	if got := revertsOf(g, k.m["unblank"]); got != k.m["blank"] {
+		t.Errorf("revert by the quoted subject: got %q", got)
+	}
+	if got := revertsOf(g, k.m["untweak"]); got != "" {
+		t.Errorf("revert by a subject two commits have: got %q", got)
+	}
+	if got := revertsOf(g, k.s["unblank60"]); got != k.m["blank"] {
+		t.Errorf("backport of a revert by the quoted subject: got %q", got)
+	}
+	if got := revertsOf(g, k.s["unonce60"]); got != "" {
+		t.Errorf("stable revert by the subject of a commit the branch never had: got %q", got)
+	}
+	if !revertedOf(g, k.m["fix"]) || !revertedOf(g, k.s["fix60"]) || !revertedOf(g, k.m["blank"]) || revertedOf(g, k.m["add"]) || revertedOf(g, k.other) {
 		t.Error("Reverted")
 	}
 }

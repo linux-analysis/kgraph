@@ -143,10 +143,14 @@ reverts and whether it was reverted. A Fixes: id that names no commit,
 or several, stands for the only mainline patch with the subject the tag
 quotes; with `--fixes fixes.txt` it is first looked up in that table of
 corrected ids, which comes from
-[verhaal](https://git.sr.ht/~gregkh/verhaal). A stable or vendor
-branch's own revert of the upstream or of another series' backport, as
-its message names them, reverts the branch's own backport of that patch,
-the newest before it.
+[verhaal](https://git.sr.ht/~gregkh/verhaal). A `Revert "…"` whose
+message names no id, or one that names no commit or several, reverts the
+only mainline patch with the quoted subject. A stable or vendor branch's
+own revert of the upstream or of another series' backport, as its
+message names them, reverts the branch's own backport of that patch, the
+newest before it; one by the quoted subject alone counts only when it
+found one, when the branch has what it reverts, or when it is the
+backport of a mainline revert.
 
 Every command on commits takes several hashes, and `-` among them reads
 more from standard input, so one run answers for a whole backport queue;

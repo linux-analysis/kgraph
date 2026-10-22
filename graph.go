@@ -144,7 +144,8 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 	log.Info("commit graph built", "commits", len(g.hashes), "cached", cached, "streamed", streamed, "dropped", dropped,
 		"mainline", st.mainline, "tags", len(g.tags), "series", l.series, "upstream_named", st.upstream.named,
 		"upstream_by_author", st.upstream.identity, "upstream_by_subject", st.upstream.subject, "upstream_rejected_reverts", st.upstream.rejected,
-		"fixes", st.fixes.fixes, "fixes_by_table", st.fixes.tabled, "fixes_by_subject", st.fixes.rescued, "fixes_unresolved", st.fixes.unresolved, "twins", st.twins,
+		"fixes", st.fixes.fixes, "fixes_by_table", st.fixes.tabled, "fixes_by_subject", st.fixes.rescued, "fixes_unresolved", st.fixes.unresolved,
+		"reverts_by_subject", st.revertsBySubject, "twins", st.twins,
 		"malformed", s.malformed, "duration", time.Since(start).Round(time.Millisecond))
 	return g, nil
 }

@@ -2,10 +2,11 @@ package kgraph
 
 // buildStats count what the passes found, for the build log.
 type buildStats struct {
-	mainline int
-	upstream upstreamStats
-	fixes    fixStats
-	twins    int
+	mainline         int
+	upstream         upstreamStats
+	fixes            fixStats
+	revertsBySubject int
+	twins            int
 }
 
 // derive runs the passes over the store and the topology of g, in the
@@ -24,12 +25,12 @@ func (g *Graph) derive(p *pass, twins []twin) buildStats {
 	named, several := findNamed(p)
 	copyOf, nTwins := findCopies(p, named, twins)
 	st.twins = nTwins
-	revert := findReverts(p)
+	revert, guessed := findReverts(p, copyOf)
 	upstream, ust := findUpstreams(p, named, revert, several, copyOf)
 	st.upstream = ust
 	pt := findPatches(p, upstream, copyOf)
 	g.backports, g.bstart = findBackports(p, upstream, several, pt.of)
-	ownReverts(p, revert, upstream, pt.of, g.backports, g.bstart)
+	st.revertsBySubject = ownReverts(p, revert, guessed, upstream, pt.of, g.backports, g.bstart)
 	fixes, fstart, fst := findFixes(p, copyOf)
 	st.fixes = fst
 	g.revert, g.upstream, g.fixes, g.fstart, g.patches = revert, upstream, fixes, fstart, pt

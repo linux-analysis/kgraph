@@ -3,7 +3,6 @@ package kgraph
 import (
 	"bytes"
 	"os"
-	"slices"
 )
 
 // pass is what every pass reads: the commits with the facts their messages
@@ -48,8 +47,10 @@ const (
 // find finds the commit that an id of a message names: the one with the
 // id, else the one the table of corrected ids gives the id, else the only
 // mainline patch with the subject the message quotes, when it quotes one,
-// by its canonical copy, as of gives it.
-func (p *pass) find(fx rawFix, of []uint32) (int32, how) {
+// by its canonical copy, as of gives it, of the commits not newer than
+// until. A revert names an older commit; a fix may name one its tree
+// rebased after the fix, so its until is math.MaxInt64.
+func (p *pass) find(fx rawFix, of []uint32, until int64) (int32, how) {
 	if t, ok := p.resolve(fx.id); ok {
 		return t, byID
 	}
@@ -59,9 +60,18 @@ func (p *pass) find(fx rawFix, of []uint32) (int32, how) {
 		}
 	}
 	if fx.quoted {
-		hits := withKey(p.subjects, fx.subject)
-		if len(hits) > 0 && !slices.ContainsFunc(hits, func(h uint32) bool { return of[h] != of[hits[0]] }) {
-			return int32(of[hits[0]]), bySubject
+		patch := int32(none)
+		for _, h := range withKey(p.subjects, fx.subject) {
+			switch c := int32(of[h]); {
+			case p.date[h] > until:
+			case patch == none || patch == c:
+				patch = c
+			default:
+				return none, unresolved
+			}
+		}
+		if patch != none {
+			return patch, bySubject
 		}
 	}
 	return none, unresolved

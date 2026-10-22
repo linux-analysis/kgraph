@@ -79,22 +79,43 @@ func TestPlainSubject(t *testing.T) {
 	}
 }
 
-// A revert names what it reverts by id; a partial revert reverts no commit
-// as a whole.
+// A Revert "..." subject quotes what it reverts; other subjects quote
+// nothing.
+func TestRevertedSubject(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{`Revert "net: fix foo"`, "net: fix foo"},
+		{`Revert "Revert "net: fix foo""`, `Revert "net: fix foo"`},
+		{`Revert "net: fix foo" (1/6)`, ""},
+		{`Revert ""`, ""},
+		{"net: fix foo", ""},
+	} {
+		got, ok := revertedSubject([]byte(tt.in))
+		if string(got) != tt.want || ok != (tt.want != "") {
+			t.Errorf("revertedSubject(%q) = %q, %v", tt.in, got, ok)
+		}
+	}
+}
+
+// A revert names what it reverts by id, or by the subject it quotes; a
+// partial revert reverts no commit as a whole.
 func TestRevertID(t *testing.T) {
-	for _, tt := range []struct{ msg, id string }{
-		{"x: undo\n\nThis reverts commit 0123456789ab.", "0123456789ab"},
-		{"Revert \"x: add\"\n\nThis reverts commit\n0123456789AB.", "0123456789ab"},
-		{"x: tidy\n\nThis partially reverts commit 0123456789ab.", ""},
-		{"x: tidy\n\nThis partly reverts 0123456789ab.", ""},
-		{"x: tidy\n\nThis partially reverts 0123456789ab and reverts\ncommit 89abcdef0123.", "89abcdef0123"},
-		{"Revert \"x: add\"\n\nThis reverts upstream commit 0123456789ab\nfrom stable.", "0123456789ab"},
-		{"x: undo\n\nThis reverts mainline commit 0123456789ab.", "0123456789ab"},
+	for _, tt := range []struct {
+		msg, id string
+		quoted  bool
+	}{
+		{"x: undo\n\nThis reverts commit 0123456789ab.", "0123456789ab", false},
+		{"Revert \"x: add\"\n\nThis reverts commit\n0123456789AB.", "0123456789ab", true},
+		{"Revert \"x: add\"\n\nIt broke y.", "", true},
+		{"x: tidy\n\nThis partially reverts commit 0123456789ab.", "", false},
+		{"Revert \"x: add\"\n\nThis partly reverts 0123456789ab.", "", false},
+		{"x: tidy\n\nThis partially reverts 0123456789ab and reverts\ncommit 89abcdef0123.", "89abcdef0123", false},
+		{"Revert \"x: add\"\n\nThis reverts upstream commit 0123456789ab\nfrom stable.", "0123456789ab", true},
+		{"x: undo\n\nThis reverts mainline commit 0123456789ab.", "0123456789ab", false},
 	} {
 		var lower []byte
 		r := parseRecord([]byte(strings.Repeat("1", 40)+"\x1f\x1f1\x1fa@b\x1f1\x1f"+tt.msg), &lower)
-		if string(r.revert.id) != tt.id {
-			t.Errorf("revert of %q = %q, want %q", tt.msg, r.revert.id, tt.id)
+		if string(r.revert.id) != tt.id || r.revert.quoted != tt.quoted {
+			t.Errorf("revert of %q = %q, quoted %v; want %q, %v", tt.msg, r.revert.id, r.revert.quoted, tt.id, tt.quoted)
 		}
 	}
 }

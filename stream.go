@@ -82,6 +82,9 @@ func parseRecord(rec []byte, lower *[]byte) record {
 	msg := f[5]
 	subject := plainSubject(subjectOf(msg))
 	r.subject = sum(subject)
+	if inner, ok := revertedSubject(subject); ok {
+		r.revert.subject, r.revert.quoted = sum(plainSubject(inner)), true
+	}
 	// One author writes their email address in more than one case.
 	email := bytes.ToLower(f[3])
 	r.ident = sum(email, subject)
@@ -204,7 +207,7 @@ func (s *store) add(r record) {
 	for _, w := range r.weak {
 		f.weak = append(f.weak, namedRef{i, w})
 	}
-	if r.revert.id != nil {
+	if r.revert.id != nil || r.revert.quoted {
 		f.reverts = append(f.reverts, fixRef{i, r.revert})
 	}
 	for _, fx := range r.fixes {
