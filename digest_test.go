@@ -12,7 +12,7 @@ import (
 // anything else, bump cacheVersion, so that no build mixes commits read
 // the old way with new ones, and set both to the new values.
 const (
-	parserDigest        = "3f5ed3f63d459080"
+	parserDigest        = "2c6251eb1378580f"
 	parserDigestVersion = 1
 )
 
@@ -36,6 +36,10 @@ var parserCorpus = []string{
 	"Revert \"x: add\"\n\nThis partly reverts 0123456789ab.\n",
 	"Revert commit 89abcdef0123 which is commit\n0123456789abcdef0123456789abcdef01234567 upstream.",
 	"mm: fix bar\n\n  Fixes: commit deadbeef1234 (\"net: add foo\")\nLink: https://lore.kernel.org/r/1/Fixes: 0123456789ab (\"Initial import\")\n",
+	"x: fix\n\nIt depends on commit 0123456789ab (\"x: add\").\n\nDepends-on: commit 89abcdef0123 (\"y: add\")\n" +
+		"Cc: <stable@vger.kernel.org> # 5.10.x: a1f84a3: sctp: Fix ipv6\nCc: stable@vger.kernel.org # 4.14+\n" +
+		"Cc: stable@kernel.org # after 1B9D9A6A: defaced 1234567\nStable-dep-of: deadbeef1234 (\"z: fix\")\n",
+	"x: fix\n\nDepends-on: 20260430-kcov-refactor-v1-1-23a0c7a0ba38@google.com\nCc: stable@vger.kernel.org # 53ab52cfe5ce: alpha: load the MMU context\n",
 	"UPSTREAM: BACKPORT: net: fix foo\n\nBug: 1\n(cherry picked from commit 0123456789abcdef0123456789abcdef01234567)\n",
 	"net: fix foo (bsc#1234567).\n\nsuse-commit: 0123456789abcdef0123456789abcdef01234567\n",
 	"a long subject that git log\nfolds into one line\n\nand a body\n",

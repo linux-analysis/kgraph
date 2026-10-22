@@ -92,3 +92,46 @@ func findReverters(p *pass, revert []int32) (reverters, rstart []uint32) {
 		}
 	}, p.byDate)
 }
+
+// depStats count the dependencies findDeps found and those it could not
+// resolve.
+type depStats struct {
+	deps, unresolved int
+}
+
+// findDeps finds what each patch needs first: what the Depends-on: tags,
+// the Cc: stable prerequisites and the text of its commits name, and for
+// the fix a Stable-dep-of: tag names, the patch of the stable commit that
+// carries the tag. A backport's message is the mainline message, so its
+// tags count for its patch, and the same pair from several branches
+// counts once. A merge's tags are those of the commits it brings.
+func findDeps(p *pass, of []uint32) (needs, neededBy keyed, st depStats) {
+	var pairs []uint64 // needer<<32 | needed
+	for k, refs := range [][]fixRef{p.facts.deps, p.facts.depOf} {
+		for _, d := range refs {
+			if p.merge(int(d.commit)) {
+				continue
+			}
+			t, how := p.find(d.rawFix, of, math.MaxInt64)
+			if how == unresolved {
+				st.unresolved++
+				continue
+			}
+			a, b := of[d.commit], of[t]
+			if k == 1 { // a Stable-dep-of: tag names the commit that needs it
+				a, b = b, a
+			}
+			if a != b {
+				pairs = append(pairs, uint64(a)<<32|uint64(b))
+			}
+		}
+	}
+	slices.Sort(pairs)
+	pairs = slices.Compact(pairs)
+	st.deps = len(pairs)
+	needs = pairIndex(pairs)
+	for j, pr := range pairs {
+		pairs[j] = pr<<32 | pr>>32
+	}
+	return needs, pairIndex(pairs), st
+}

@@ -70,6 +70,27 @@ func TestFollowups(t *testing.T) {
 	}
 }
 
+// The prerequisites of a commit are what its patch needs first, listed
+// with the series that lack them, whether or not the series have the
+// patch; a stable commit stands for its patch.
+func TestPrereqs(t *testing.T) {
+	k := newKernel(t)
+	g := build(t, k.dir, remotes)
+	series := targets(t, g, "6.0", "5.15", "v6.1")
+	for name, want := range map[string][]followup{
+		// Every series has the initial import; 5.15 lacks net: add foo and
+		// 6.0 reverted net: fix foo.
+		k.m["dep"]:   {{Hash: k.m["add"], Series: []string{"5.15"}}, {Hash: k.m["fix"], Series: []string{"6.0"}}},
+		k.m["top"]:   {{Hash: k.m["base"], Series: []string{"5.15", "6.1"}}},
+		k.m["add"]:   nil,
+		k.s["top60"]: {{Hash: k.m["base"], Series: []string{"5.15", "6.1"}}},
+	} {
+		if got := prereqsOf(g, name, series); !reflect.DeepEqual(got, want) {
+			t.Errorf("Prereqs(%s) = %v, want %v", name, got, want)
+		}
+	}
+}
+
 // A fix one series reverted is still a follow-up for another series that
 // has the commit and never had the fix; mainline reverting it would make
 // it none. The series that reverted the backport has no backport.
@@ -333,6 +354,39 @@ func TestRevertPickAroundMerge(t *testing.T) {
 	want := []Presence{{Series: "android/after"}, {Series: "android/before", Commit: backport}}
 	if got := inSeriesOf(g, x, targets(t, g, "android/after", "android/before")); !slices.Equal(got, want) {
 		t.Errorf("InSeries = %v, want %v", got, want)
+	}
+}
+
+// AllPrereqs lists the prerequisites of the prerequisites too, for the
+// series that lack them, and no further where a series has one.
+func TestAllPrereqs(t *testing.T) {
+	r := newRepo(t)
+	r.commit("init")
+	r.git("tag", "v5.0")
+	c := r.commit("x: add c")
+	r.git("tag", "v5.1")
+	b := r.commit("x: add b\n\nDepends-on: " + c[:12])
+	a := r.commit("x: add a\n\nDepends-on: " + b[:12])
+	r.git("tag", "v5.2-rc1")
+	g := build(t, r.dir, kernel.Remotes{})
+	ts := targets(t, g, "5.0", "5.1")
+	if got, want := prereqsOf(g, a, ts), []followup{{b, []string{"5.0", "5.1"}}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Prereqs = %v, want %v", got, want)
+	}
+	if got, want := allPrereqsOf(g, a, ts), []followup{{b, []string{"5.0", "5.1"}}, {c, []string{"5.0"}}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("AllPrereqs = %v, want %v", got, want)
+	}
+}
+
+// A Cc: stable line whose id names no commit of the graph names the
+// commit with the subject that follows it.
+func TestCcStableBySubject(t *testing.T) {
+	r := newRepo(t)
+	x := r.commit("alpha: load the MMU context")
+	fix := r.commit("alpha: fix\n\nCc: <stable@vger.kernel.org> # 53ab52cfe5ce: alpha: load the MMU context")
+	g := build(t, r.dir, kernel.Remotes{})
+	if got := needsOf(g, fix); !slices.Equal(got, []string{x}) {
+		t.Errorf("Needs = %v, want [%s]", got, x)
 	}
 }
 

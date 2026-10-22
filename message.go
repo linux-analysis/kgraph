@@ -10,18 +10,31 @@ import (
 // them once every commit is known. The cache keeps what they return as
 // facts, and TestParserDigest ties that to cacheVersion.
 
-// fixesRe matches a Fixes: tag, also with the word commit before the id
-// and also where a missing line break left it after other text; the rest of
-// the line may quote the subject. revertRe matches "This reverts commit X"
-// and its variants, the id possibly on the next line or after "upstream",
-// and "partially reverts commit X", which reverts no commit as a whole.
+// tagRe matches a tag such as Fixes:, also with the word commit before
+// the id and also where a missing line break left it after other text; the
+// rest of the line may quote the subject.
+func tagRe(tag string) *regexp.Regexp {
+	return regexp.MustCompile(`(?im)\b` + tag + `:[ \t]*(?:commit[ \t]+)?([0-9a-f]{6,40})\b[ \t]*(.*)$`)
+}
+
+// revertRe matches "This reverts commit X" and its variants, the id
+// possibly on the next line or after "upstream", and "partially reverts
+// commit X", which reverts no commit as a whole. ccStableRe matches the
+// comment of a Cc: stable line, where the ids of the commits the patch
+// needs first may follow the version, as "# 3.3.x: a1f84a3: sctp: Fix
+// ipv6"; dependsOnRe matches "depends on commit X" in running text.
 var (
-	fixesRe  = regexp.MustCompile(`(?im)\bfixes:[ \t]*(?:commit[ \t]+)?([0-9a-f]{6,40})\b[ \t]*(.*)$`)
-	quotedRe = regexp.MustCompile(`^\(?\s*"(.*)"\s*\)?`)
-	revertRe = regexp.MustCompile(`(?i)\b(partial(?:ly)?\s+|partly\s+)?reverts\s+(?:(?:upstream|mainline)\s+)?(?:commit\s+)?([0-9a-f]{7,40})\b`)
+	fixesRe     = tagRe("fixes")
+	dependsRe   = tagRe("depends-on")
+	depOfRe     = tagRe("stable-dep-of")
+	quotedRe    = regexp.MustCompile(`^\(?\s*"(.*)"\s*\)?`)
+	revertRe    = regexp.MustCompile(`(?i)\b(partial(?:ly)?\s+|partly\s+)?reverts\s+(?:(?:upstream|mainline)\s+)?(?:commit\s+)?([0-9a-f]{7,40})\b`)
+	ccStableRe  = regexp.MustCompile(`(?im)^[ \t]*cc:[^\n#]*stable@(?:vger\.)?kernel\.org[^\n#]*#(.*)$`)
+	hexRe       = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	dependsOnRe = regexp.MustCompile(`(?i)\bdepends? (?:on|upon) (?:the )?commit ([0-9a-f]{7,40})\b`)
 )
 
-// rawFix is one Fixes: tag, or a commit's revert: the id as
+// rawFix is one Fixes: or dependency tag, or a commit's revert: the id as
 // written and, when a subject is quoted, its hash.
 type rawFix struct {
 	id      []byte
@@ -66,6 +79,20 @@ func parseMessage(r *record, msg, lower []byte) {
 		}
 	}
 	r.fixes = tagLines(msg, lower, "fixes:", fixesRe)
+	r.deps = tagLines(msg, lower, "depends-on:", dependsRe)
+	r.depOf = tagLines(msg, lower, "stable-dep-of:", depOfRe)
+	for line := range keyLines(msg, lower, "stable@") {
+		m := ccStableRe.FindSubmatch(line)
+		if m == nil {
+			continue
+		}
+		r.deps = append(r.deps, ccStableIDs(m[1])...)
+	}
+	for line := range keyLines(msg, lower, "depend") {
+		for _, m := range dependsOnRe.FindAllSubmatch(line, -1) {
+			r.deps = append(r.deps, rawFix{id: bytes.ToLower(m[1])})
+		}
+	}
 }
 
 // keyLines yields the lines of msg that hold key, in lower case. The
@@ -93,16 +120,53 @@ func keyLines(msg, lower []byte, key string) iter.Seq[[]byte] {
 }
 
 // tagLines runs re, a tagRe, over the lines of msg that hold key, the tag
-// in lower case, and returns what they name.
+// in lower case, and returns what they name. A message id is no commit id,
+// though it may start with one: a date before a dash, a number before an
+// @.
 func tagLines(msg, lower []byte, key string, re *regexp.Regexp) []rawFix {
 	var refs []rawFix
 	for line := range keyLines(msg, lower, key) {
-		for _, m := range re.FindAllSubmatch(line, -1) {
-			fx := rawFix{id: bytes.ToLower(m[1])}
-			if q := quotedRe.FindSubmatch(m[2]); q != nil {
+		for _, m := range re.FindAllSubmatchIndex(line, -1) {
+			if end := m[3]; end < len(line) && (line[end] == '-' || line[end] == '@') {
+				continue
+			}
+			fx := rawFix{id: bytes.ToLower(line[m[2]:m[3]])}
+			if q := quotedRe.FindSubmatch(line[m[4]:m[5]]); q != nil {
 				fx.subject, fx.quoted = sum(plainSubject(bytes.TrimSpace(q[1]))), true
 			}
 			refs = append(refs, fx)
+		}
+	}
+	return refs
+}
+
+// ccStableIDs returns the ids that the comment of a Cc: stable line names,
+// each with the subject that follows it after a colon, or quoted, up to the
+// next id: "# 5.10.x: a1f84a3: sctp: Fix ipv6". A version or a bug number
+// is digits alone, a word letters alone.
+func ccStableIDs(comment []byte) []rawFix {
+	var ids [][]int
+	for _, at := range hexRe.FindAllIndex(bytes.ToLower(comment), -1) {
+		if id := comment[at[0]:at[1]]; bytes.ContainsAny(id, "0123456789") && bytes.ContainsAny(bytes.ToLower(id), "abcdef") {
+			ids = append(ids, at)
+		}
+	}
+	refs := make([]rawFix, len(ids))
+	for k, at := range ids {
+		refs[k].id = bytes.ToLower(comment[at[0]:at[1]])
+		end := len(comment)
+		if k+1 < len(ids) {
+			end = ids[k+1][0]
+		}
+		rest := bytes.TrimSpace(comment[at[1]:end])
+		var subject []byte
+		if q := quotedRe.FindSubmatch(rest); q != nil {
+			subject = q[1]
+		} else if s, ok := bytes.CutPrefix(rest, []byte(":")); ok {
+			subject = bytes.TrimRight(s, " \t,;")
+		}
+		if subject = bytes.TrimSpace(subject); len(subject) > 0 {
+			refs[k].subject, refs[k].quoted = sum(plainSubject(subject)), true
 		}
 	}
 	return refs

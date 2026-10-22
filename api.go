@@ -159,6 +159,18 @@ func (p Patch) FixedBy() []Patch {
 	return p.g.patchList(p.g.fixedBy[p.g.fbstart[p.c]:p.g.fbstart[p.c+1]])
 }
 
+// Needs are the patches that the patch needs first, oldest first: what the
+// Depends-on: tags of its commits, the ids of their Cc: stable lines and
+// "depends on commit" in their text name, and the patch of every stable
+// commit whose Stable-dep-of: tag names the patch.
+func (p Patch) Needs() []Patch { return p.g.patchList(p.g.sorted(withKey(p.g.needs, uint64(p.c)))) }
+
+// NeededBy are the patches that need the patch first, as Needs tells,
+// oldest first.
+func (p Patch) NeededBy() []Patch {
+	return p.g.patchList(p.g.sorted(withKey(p.g.neededBy, uint64(p.c))))
+}
+
 func (g *Graph) patchList(list []uint32) []Patch {
 	if len(list) == 0 {
 		return nil
@@ -168,4 +180,11 @@ func (g *Graph) patchList(list []uint32) []Patch {
 		out[j] = Patch{g, c}
 	}
 	return out
+}
+
+// sorted orders a copy of list oldest first.
+func (g *Graph) sorted(list []uint32) []uint32 {
+	list = slices.Clone(list)
+	slices.SortFunc(list, g.byDate)
+	return list
 }

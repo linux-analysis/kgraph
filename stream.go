@@ -43,6 +43,8 @@ type record struct {
 	weak     []hash
 	revert   rawFix
 	fixes    []rawFix
+	deps     []rawFix // what the commit needs first
+	depOf    []rawFix // the fixes that need the commit first, by Stable-dep-of: tags
 	bad      bool
 }
 
@@ -212,6 +214,12 @@ func (s *store) add(r record) {
 	}
 	for _, fx := range r.fixes {
 		f.fixes = append(f.fixes, fixRef{i, fx})
+	}
+	for _, fx := range r.deps {
+		f.deps = append(f.deps, fixRef{i, fx})
+	}
+	for _, fx := range r.depOf {
+		f.depOf = append(f.depOf, fixRef{i, fx})
 	}
 }
 

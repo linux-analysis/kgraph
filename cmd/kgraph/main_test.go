@@ -95,6 +95,8 @@ func TestLookupAndFixes(t *testing.T) {
 	gitRun(t, dir, "tag", "v6.1")
 	fix := write("int a = 1;\n", "a: fix\n\nFixes: "+intro[:12]+" (\"a: add\")\n")
 	gitRun(t, dir, "tag", "v6.2-rc1")
+	dep := write("int a = 2;\n", "a: use\n\nDepends-on: "+intro[:12]+" (\"a: add\")\n")
+	top := write("int a = 3;\n", "a: use more\n\nDepends-on: "+dep[:12]+"\n")
 	gitRun(t, dir, "checkout", "-q", "-b", "side")
 	side := write("int b;\n", "b: on a branch the graph does not read")
 	gitRun(t, dir, "checkout", "-q", "master")
@@ -184,8 +186,28 @@ func TestLookupAndFixes(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"found": true`) || !strings.Contains(out, `"found": false`) || strings.Contains(out, `"followups"`) {
 		t.Errorf("followups as JSON = %q, %d", out, code)
 	}
-	out, code = captureIn(t, fix+"\n"+intro[:12]+" zz\n", "--tree", dir, "fixes", "-")
-	if code != 0 || !strings.Contains(out, fix+"\t"+intro+"\tmainline") || strings.Contains(out, "\n"+intro+"\t") ||
+	out, code = capture(t, "--tree", dir, "deps", dep[:12])
+	if code != 0 || !strings.Contains(out, intro+"\tmainline") {
+		t.Errorf("deps = %q, %d", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "needed-by", intro)
+	if code != 0 || !strings.Contains(out, dep+"\tmainline") {
+		t.Errorf("needed-by = %q, %d", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "--series", "6.0,6.1", "prereqs", dep, "zz")
+	if code != 0 || !strings.Contains(out, dep+"\t"+intro+"\t6.0\tv6.1\ta: add\n") || strings.Contains(out, "\t6.1\t") ||
+		!strings.Contains(out, "zz\tis not a commit id") {
+		t.Errorf("prereqs = %q, %d", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "--series", "6.0", "--json", "prereqs", dep)
+	if code != 0 || !strings.Contains(out, `"prereqs"`) || strings.Contains(out, `"followups"`) {
+		t.Errorf("prereqs as JSON = %q, %d", out, code)
+	}
+	if out, code := capture(t, "--tree", dir, "--no-stable", "--series", "6.1", "prereqs", dep); code != 2 || !strings.Contains(out, "--no-stable") {
+		t.Errorf("prereqs --no-stable = %q, %d, want a usage error", out, code)
+	}
+	out, code = captureIn(t, fix+"\n"+dep[:12]+" zz\n", "--tree", dir, "fixes", "-")
+	if code != 0 || !strings.Contains(out, fix+"\t"+intro+"\tmainline") || strings.Contains(out, dep+"\t") ||
 		!strings.Contains(out, "zz\tis not a commit id") {
 		t.Errorf("fixes from stdin = %q, %d", out, code)
 	}
@@ -231,9 +253,18 @@ func TestLookupAndFixes(t *testing.T) {
 	if out, _ := capture(t, "--tree", dir, "lookup", "--", "--json"); !strings.Contains(out, "--json\tis not a commit id") {
 		t.Errorf("an argument after -- = %q", out)
 	}
-	// followups names the hash asked about as every command does.
+	// followups and prereqs name the hash asked about as every command
+	// does; --deep lists the prerequisites of the prerequisites.
 	if out, _ := capture(t, "--tree", dir, "--series", "6.1", "--json", "followups", intro); !strings.Contains(out, `"hash": "`+intro+`"`) || strings.Contains(out, `"fix"`) {
 		t.Errorf("followups as JSON = %q", out)
+	}
+	out, code = capture(t, "--tree", dir, "--series", "6.0", "prereqs", top)
+	if code != 0 || !strings.Contains(out, top+"\t"+dep+"\t6.0") || strings.Contains(out, intro) {
+		t.Errorf("prereqs = %q, %d, want the one level", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "--series", "6.0", "prereqs", "--deep", top)
+	if code != 0 || !strings.Contains(out, top+"\t"+dep+"\t6.0") || !strings.Contains(out, top+"\t"+intro+"\t6.0") {
+		t.Errorf("prereqs --deep = %q, %d", out, code)
 	}
 	// A --cache that is a directory is a usage error.
 	if out, code := capture(t, "--tree", dir, "--cache", t.TempDir(), "lookup", fix); code != 2 || !strings.Contains(out, "is a directory") {

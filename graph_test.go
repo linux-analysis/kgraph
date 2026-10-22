@@ -196,6 +196,10 @@ func newKernel(t *testing.T) *kernelRepo {
 	// Reverts that name no id: of a subject one commit has, and of one two have.
 	k.m["unblank"] = r.commit("Revert \"gpu: add blank\"\n\nIt broke the display.")
 	k.m["untweak"] = r.commit("Revert \"x86: tweak\"\n\nOne of them.")
+	k.m["base"] = r.commit("mm: add base")
+	k.m["top"] = r.commit("mm: fix top") // 6.0 takes mm: add base as its dependency
+	k.m["dep"] = r.commit("net: use foo\n\nIt depends on commit " + k.m["fix"][:12] + ".\n\nDepends-on: " + k.m["add"][:12] +
+		" (\"net: add foo\")\nCc: <stable@vger.kernel.org> # 5.15.x: " + k.m["init"][:12] + ": Initial import")
 	k.m["twin1"] = r.commit("drm: fix qux")
 	r.git("tag", "v6.2-rc2")
 	quxAt := r.clock
@@ -220,6 +224,8 @@ func newKernel(t *testing.T) *kernelRepo {
 	k.s["revert60"] = r.commit("Revert \"net: fix foo\"\n\nThis reverts commit " + k.s["fix60"] + " which is\ncommit " + k.m["fix"] + " upstream.")
 	k.s["tweak60"] = r.commitAs("bob@example.com", "x86: tweak") // two mainline candidates
 	k.s["qux60"] = r.commitAt(quxAt, "alice@example.com", "drm: fix qux\n\ncommit "+k.m["twin1"]+" upstream.")
+	k.s["base60"] = r.commit("mm: add base\n\ncommit " + k.m["base"] + " upstream.\n\nStable-dep-of: " + k.m["top"][:12] + " (\"mm: fix top\")")
+	k.s["top60"] = r.commit("mm: fix top\n\ncommit " + k.m["top"] + " upstream.")
 	r.git("tag", "-a", "-m", "Linux 6.0.2", "v6.0.2")
 	k.s["untagged60"] = r.commit("arm: fix baz\n\ncommit " + k.m["late"] + " upstream.")
 	r.git("update-ref", "refs/remotes/stable/linux-6.0.y", "HEAD")
@@ -471,6 +477,13 @@ func TestBuild(t *testing.T) {
 		{"FixedBy", fixedByOf(g, k.m["add"]), []string{k.m["fix"], k.m["bar"]}},
 		{"FixedBy, the root", fixedByOf(g, k.m["init"]), []string{k.m["bar"]}},
 		{"FixedBy, none", fixedByOf(g, k.m["bar"]), nil},
+		{"Needs: a tag, a Cc: stable prerequisite and the text", needsOf(g, k.m["dep"]), []string{k.m["init"], k.m["add"], k.m["fix"]}},
+		{"Needs: by the Stable-dep-of: tag of a backport", needsOf(g, k.m["top"]), []string{k.m["base"]}},
+		{"Needs, none", needsOf(g, k.m["add"]), nil},
+		{"NeededBy", neededByOf(g, k.m["add"]), []string{k.m["dep"]}},
+		{"NeededBy, by the Stable-dep-of: tag of a backport", neededByOf(g, k.m["base"]), []string{k.m["top"]}},
+		{"Needs, a backport standing for its upstream", needsOf(g, k.s["top60"]), []string{k.m["base"]}},
+		{"NeededBy, a backport standing for its upstream", neededByOf(g, k.s["base60"]), []string{k.m["top"]}},
 		{"backport reverted in 6.0", backportsOf(g, k.m["fix"]), []string{k.s["fix515"]}},
 		{"backport by author and subject", backportsOf(g, k.m["bar"]), []string{k.s["bar60"]}},
 		{"backport of a twin", backportsOf(g, k.m["twin2"]), []string{k.s["qux60"]}},
@@ -681,9 +694,9 @@ func TestSubjectOfCopies(t *testing.T) {
 	}
 }
 
-// Every question about a commit is one about its patch: a fix that names
-// one copy names them all, and the answer names each patch by its
-// canonical copy.
+// Every question about a commit is one about its patch: a fix or a
+// dependency that names one copy names them all, and the answer names
+// each patch by its canonical copy.
 func TestPatchOfCopies(t *testing.T) {
 	r := newRepo(t)
 	base := r.commit("init")
@@ -693,7 +706,7 @@ func TestPatchOfCopies(t *testing.T) {
 	second := r.twin(base, quxAt, "drm: fix qux")
 	fix := r.commit("drm: fix qux harder\n\nFixes: " + second[:12] + " (\"drm: fix qux\")")
 	again := r.twin(first, r.clock, "drm: fix qux harder\n\nFixes: "+first[:12]+" (\"drm: fix qux\")")
-	user := r.commit("drm: use qux")
+	user := r.commit("drm: use qux\n\nDepends-on: " + second[:12])
 	g := build(t, r.dir, kernel.Remotes{})
 	if got := copiesOf(g, second); !slices.Equal(got, []string{first, second}) {
 		t.Fatalf("Copies(second) = %v, want both", got)
@@ -702,11 +715,17 @@ func TestPatchOfCopies(t *testing.T) {
 		if got := fixedByOf(g, h); !slices.Equal(got, []string{fix}) {
 			t.Errorf("FixedBy(%s) = %v, want the fix once, by its canonical copy", h, got)
 		}
+		if got := neededByOf(g, h); !slices.Equal(got, []string{user}) {
+			t.Errorf("NeededBy(%s) = %v, want [%s]", h, got, user)
+		}
 	}
 	for _, h := range []string{fix, again} {
 		if got := fixesOf(g, h); !slices.Equal(got, []string{first}) {
 			t.Errorf("Fixes(%s) = %v, want the canonical copy alone", h, got)
 		}
+	}
+	if got := needsOf(g, user); !slices.Equal(got, []string{first}) {
+		t.Errorf("Needs(user) = %v, want [%s]", got, first)
 	}
 
 	// The Fixes: tag a stable maintainer adds to a backport counts for its

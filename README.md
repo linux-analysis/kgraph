@@ -3,11 +3,11 @@
 kgraph answers questions about the commits of a Linux kernel tree from
 its commit graph: the release that first contains a commit, the stable
 backports of a mainline commit and whether each stable series has it,
-the commits a Fixes: tag names and the later fixes of a commit, the same
-patch merged twice, and reverts. It is a Go library with a command line,
-depends on the standard library and git only, and reads the whole tree,
-about two million commits, in about 20 seconds and 2 GB of memory, or in
-about half a second from its cache.
+the commits a Fixes: tag names and the later fixes of a commit, the
+commits it needs first, the same patch merged twice, and reverts. It is
+a Go library with a command line, depends on the standard library and
+git only, and reads the whole tree, about two million commits, in about
+20 seconds and 2 GB of memory, or in about half a second from its cache.
 
 ## Install
 
@@ -77,8 +77,8 @@ branch or tag reaches any more, as after a rebase; `--cache FILE` names
 the file instead. `kgraph build` builds the graph and the cache and
 nothing else. `--no-stable` leaves the stable branches and releases out,
 and the vendor branches, which bring stable commits along, for a quicker
-build of mainline alone; it keeps a cache file of its own, and `where`
-and `followups` refuse it.
+build of mainline alone; it keeps a cache file of its own, and `where`,
+`followups` and `prereqs` refuse it.
 
 ## Questions
 
@@ -123,6 +123,19 @@ fix still in linux-next shows `next` in place of a tag:
     dae8dda341d2d9034a90d59e8a7d502e1263813f	5cbea500775dd1944995f23320af030b9b24b24b	6.18	v7.3-rc2	tracing: Fix comment in tracing_buffers_splice_read()
     dae8dda341d2d9034a90d59e8a7d502e1263813f	7e645147dfba67edb3ed3090a1ed1d89df77fc27	6.18	v7.3-rc3	tracing: Fix ring_buffer_read_page_size() kernel-doc
 
+`prereqs` is the converse, for a commit about to be backported: the
+commits it needs first that a series or branch lacks, in the same
+format. A commit needs what its `Depends-on:` tags, the ids before the
+subject of a `Cc: stable` line (`# 5.10.x: a1f84a3: sctp: Fix ipv6`) and
+"depends on commit X" in its text name, and the upstream of every stable
+backport whose `Stable-dep-of:` tag names it. `deps` and `needed-by`
+list one level; `prereqs --deep` lists the prerequisites of the
+prerequisites too, for a series or branch that lacks them, until it has
+what it needs:
+
+    $ kgraph --series 6.12,6.18,7.2 prereqs b59cabf9b4ac
+    b59cabf9b4acb65f3f9968087ca0e18010d85076	f12f0234cc14886bcfd53ffb7c8df4216dad51f1	6.12,6.18	v7.3-rc1	io_uring/memmap: account the pages a compound region really uses
+
 `backports` lists the stable and vendor backports of a patch, the stable
 ones as the kernel CNA's dyad counts them, those in a release, and none
 that its own series or branch reverted; `--adapted` marks the ones that
@@ -134,7 +147,8 @@ a backport to a file that moved since is no adapted one:
     dae8dda341d2d9034a90d59e8a7d502e1263813f	75b37b8369778b69ce9738d1c97685a1615cb252	stable	tag v7.2.7	series v7.2	upstream dae8dda341d2d9034a90d59e8a7d502e1263813f
 
 `fixes` are the patches the Fixes: tags of a patch's copies name,
-`fixed-by` the later patches whose Fixes: tags name it, `copies` its
+`fixed-by` the later patches whose Fixes: tags name it, `deps` the
+patches it needs first and `needed-by` those that need it, `copies` its
 copies, the mainline commits with one author, author date and subject,
 and that change the same lines when one descends from the other, as a
 fix applied again after its revert, or with one subject and
@@ -187,8 +201,10 @@ p := c.Patch()                 // the change: its copies and backports
 p.Commit()                     // its canonical copy
 p.Copies(); p.Backports()      // the backports by dyad's rules, then vendor ones
 p.Fixes(); p.FixedBy()         // by Fixes: tags
+p.Needs(); p.NeededBy()        // by Depends-on:, Cc: stable and Stable-dep-of: tags
 p.In(ts)                       // whether each series and tree has it
-p.Followups(ts)                // the later fixes they lack
+p.Followups(ts); p.Prereqs(ts) // the related patches they lack
+p.AllPrereqs(ts)               // and the prerequisites of those, as they lack them
 ```
 
 A `Graph` is read-only once built and safe for concurrent use. The

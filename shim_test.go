@@ -76,6 +76,12 @@ func fixesOf(g *Graph, h string) []string {
 func fixedByOf(g *Graph, h string) []string {
 	return related(g, h, func(p Patch) []string { return pids(p.FixedBy()) })
 }
+func needsOf(g *Graph, h string) []string {
+	return related(g, h, func(p Patch) []string { return pids(p.Needs()) })
+}
+func neededByOf(g *Graph, h string) []string {
+	return related(g, h, func(p Patch) []string { return pids(p.NeededBy()) })
+}
 func copiesOf(g *Graph, h string) []string {
 	return related(g, h, func(p Patch) []string { return ids(p.Copies()) })
 }
@@ -118,6 +124,14 @@ type followup struct {
 
 func followupsOf(g *Graph, h string, ts []Target) []followup {
 	return related(g, h, func(p Patch) []followup { return asFollowups(p.Followups(ts)) })
+}
+
+func prereqsOf(g *Graph, h string, ts []Target) []followup {
+	return related(g, h, func(p Patch) []followup { return asFollowups(p.Prereqs(ts)) })
+}
+
+func allPrereqsOf(g *Graph, h string, ts []Target) []followup {
+	return related(g, h, func(p Patch) []followup { return asFollowups(p.AllPrereqs(ts)) })
 }
 
 func asFollowups(rs []Related) []followup {

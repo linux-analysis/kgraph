@@ -1,6 +1,8 @@
 package kgraph
 
 import (
+	"bytes"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -93,6 +95,37 @@ func TestRevertedSubject(t *testing.T) {
 		if string(got) != tt.want || ok != (tt.want != "") {
 			t.Errorf("revertedSubject(%q) = %q, %v", tt.in, got, ok)
 		}
+	}
+}
+
+// The dependency forms: Depends-on: and Stable-dep-of: tags, the ids
+// after the version of a Cc: stable line with the subject that follows
+// each, and "depends on commit" in the text; a version, a bug number, a
+// word and a message id are no ids.
+func TestParseDeps(t *testing.T) {
+	msg := []byte("x: fix\n\nIt depends on commit 0123456789ab (\"x: add\").\n\nDepends-on: commit 89abcdef0123 (\"y: add\")\n" +
+		"Cc: <stable@vger.kernel.org> # 5.10.x: a1f84a3: sctp: Fix ipv6\nCc: stable@vger.kernel.org # 4.14+\n" +
+		"Cc: stable@kernel.org # after 1B9D9A6A: defaced 1234567\nStable-dep-of: deadbeef1234 (\"z: fix\")\n" +
+		"Depends-on: 20260430-kcov-refactor-v1-1-23a0c7a0ba38@google.com\nDepends-on: <1234567@example.com>\n")
+	var r record
+	parseMessage(&r, msg, bytes.ToLower(msg))
+	ids := func(refs []rawFix) (out []string) {
+		for _, fx := range refs {
+			out = append(out, string(fx.id))
+		}
+		return out
+	}
+	if got := ids(r.deps); !slices.Equal(got, []string{"89abcdef0123", "a1f84a3", "1b9d9a6a", "0123456789ab"}) {
+		t.Errorf("deps = %v", got)
+	}
+	if fx := r.deps[1]; !fx.quoted || fx.subject != sum([]byte("sctp: Fix ipv6")) {
+		t.Errorf("the Cc: stable id a1f84a3 quotes %x, %v; want the subject after it", fx.subject, fx.quoted)
+	}
+	if got := ids(r.depOf); !slices.Equal(got, []string{"deadbeef1234"}) || !r.depOf[0].quoted {
+		t.Errorf("depOf = %v, quoted %v", got, r.depOf[0].quoted)
+	}
+	if len(r.fixes) != 0 {
+		t.Errorf("fixes = %v", ids(r.fixes))
 	}
 }
 

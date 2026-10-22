@@ -2,8 +2,8 @@
 // every commit of mainline, of the stable linux-*.y branches, of the v*
 // release tags, of linux-next and of the vendor branches when the tree has
 // them, with the first tag that contains it, the mainline commit a
-// backport was made from, and the commits its Fixes: tags and revert line
-// name.
+// backport was made from, and the commits its Fixes: tags, dependency tags
+// and revert line name.
 //
 // A build runs in stages, each making what the next one reads:
 //
@@ -15,10 +15,10 @@
 //   - The topology tells which trees reach each commit, its first tag and
 //     which commits are its ancestors.
 //   - The passes resolve what the facts name by what the topology tells:
-//     the copies of each patch, reverts, upstreams, Fixes: and backports.
-//     derive runs them in the order their inputs ask for. Twins that
-//     descend from one another are copies when they change the same
-//     lines, which the store reads for them alone and the cache keeps.
+//     the copies of each patch, reverts, upstreams, Fixes:, backports and
+//     dependencies. derive runs them in the order their inputs ask for.
+//     Twins that descend from one another are copies when they change the
+//     same lines, which the store reads for them alone and the cache keeps.
 //   - The questions go through handles: a Commit, and its Patch, the change
 //     itself, whose presence in a series or a tree one replay of its
 //     timeline tells.
@@ -64,6 +64,8 @@ type Graph struct {
 	bstart    []uint32
 	fixedBy   []uint32 // patches under the patches their Fixes: tags name, oldest first
 	fbstart   []uint32
+	needs     keyed // the patches each patch needs first
+	neededBy  keyed // the patches that need each patch first
 
 	layout *Layout
 }
@@ -145,7 +147,7 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 		"mainline", st.mainline, "tags", len(g.tags), "series", l.series, "upstream_named", st.upstream.named,
 		"upstream_by_author", st.upstream.identity, "upstream_by_subject", st.upstream.subject, "upstream_rejected_reverts", st.upstream.rejected,
 		"fixes", st.fixes.fixes, "fixes_by_table", st.fixes.tabled, "fixes_by_subject", st.fixes.rescued, "fixes_unresolved", st.fixes.unresolved,
-		"reverts_by_subject", st.revertsBySubject, "twins", st.twins,
+		"deps", st.deps.deps, "deps_unresolved", st.deps.unresolved, "reverts_by_subject", st.revertsBySubject, "twins", st.twins,
 		"malformed", s.malformed, "duration", time.Since(start).Round(time.Millisecond))
 	return g, nil
 }

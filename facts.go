@@ -15,6 +15,8 @@ type facts struct {
 	lines   []namedRef // the SHA-1 of the lines a commit changes, as kernel.ChangedLines gives them, for the twins readLines read
 	reverts []fixRef   // one per commit, in stream order
 	fixes   []fixRef   // grouped by commit in stream order
+	deps    []fixRef   // what each commit needs first, grouped so
+	depOf   []fixRef   // the fixes that need each commit first, grouped so
 }
 
 // namedRef is a commit and the full upstream id its message names.
@@ -41,5 +43,5 @@ func (f *facts) namedCols() []*[]namedRef {
 }
 
 func (f *facts) refCols() []*[]fixRef {
-	return []*[]fixRef{&f.reverts, &f.fixes}
+	return []*[]fixRef{&f.reverts, &f.fixes, &f.deps, &f.depOf}
 }

@@ -161,8 +161,8 @@ func (p Patch) Backports() []Commit {
 	return g.commits(out)
 }
 
-// Related is a later fix of a patch, with the series and trees that lack
-// it.
+// Related is a later fix, or a prerequisite, of a patch, with the series
+// and trees that lack it.
 type Related struct {
 	Patch  Patch
 	Series []string
@@ -210,6 +210,65 @@ func (g *Graph) revertsPatch(f, c uint32) bool {
 		}
 	}
 	return false
+}
+
+// Prereqs lists the patches that the patch needs first, as Needs tells,
+// with the series and trees of ts that do not have them.
+func (p Patch) Prereqs(ts []Target) []Related { return p.prereqs(ts, false) }
+
+// AllPrereqs lists the prerequisites as Prereqs does, and theirs in turn
+// for the series and trees that lack them, until each has what it needs:
+// one that has a prerequisite is taken to have its own.
+func (p Patch) AllPrereqs(ts []Target) []Related { return p.prereqs(ts, true) }
+
+func (p Patch) prereqs(ts []Target, deep bool) []Related {
+	g := p.g
+	// need is a patch whose prerequisites the targets of ts at lack miss.
+	type need struct {
+		c    uint32
+		lack []int
+	}
+	all := make([]int, len(ts))
+	for i := range all {
+		all[i] = i
+	}
+	missing := map[uint32][]bool{} // the targets of ts each prerequisite is missing in
+	var order []uint32
+	for queue := []need{{p.c, all}}; len(queue) > 0; queue = queue[1:] {
+		for _, f := range (Patch{g, queue[0].c}).Needs() {
+			if f.c == p.c {
+				continue
+			}
+			if missing[f.c] == nil {
+				missing[f.c] = make([]bool, len(ts))
+				order = append(order, f.c)
+			}
+			steps := g.timeline(f.c)
+			var lack []int
+			for _, i := range queue[0].lack {
+				if st, _ := g.replay(steps, ts[i]); !missing[f.c][i] && st != present {
+					missing[f.c][i] = true
+					lack = append(lack, i)
+				}
+			}
+			if deep && lack != nil {
+				queue = append(queue, need{f.c, lack})
+			}
+		}
+	}
+	var out []Related
+	for _, c := range order {
+		var names []string
+		for i, m := range missing[c] {
+			if m {
+				names = append(names, ts[i].Name)
+			}
+		}
+		if names != nil {
+			out = append(out, Related{Patch{g, c}, names})
+		}
+	}
+	return out
 }
 
 // lacking names the targets of ts where the patch of steps stands as lacks

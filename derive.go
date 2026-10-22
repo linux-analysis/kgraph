@@ -5,6 +5,7 @@ type buildStats struct {
 	mainline         int
 	upstream         upstreamStats
 	fixes            fixStats
+	deps             depStats
 	revertsBySubject int
 	twins            int
 }
@@ -36,5 +37,6 @@ func (g *Graph) derive(p *pass, twins []twin) buildStats {
 	g.revert, g.upstream, g.fixes, g.fstart, g.patches = revert, upstream, fixes, fstart, pt
 	g.fixedBy, g.fbstart = findFixedBy(p, fixes, fstart, pt.of)
 	g.reverters, g.rstart = findReverters(p, revert)
+	g.needs, g.neededBy, st.deps = findDeps(p, pt.of)
 	return st
 }
