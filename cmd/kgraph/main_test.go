@@ -93,9 +93,9 @@ func TestLookupAndFixes(t *testing.T) {
 	}
 	intro := write("int a;\n", "a: add")
 	gitRun(t, dir, "tag", "v6.1")
-	fix := write("int a = 1;\n", "a: fix\n\nFixes: "+intro[:12]+" (\"a: add\")\n")
+	fix := write("int a = 1;\n", "a: fix\n\nFixes: "+intro[:12]+" (\"a: add\")\nLink: https://lore.kernel.org/r/20240101120000.1-1-a@example.com\n")
 	gitRun(t, dir, "tag", "v6.2-rc1")
-	dep := write("int a = 2;\n", "a: use\n\nDepends-on: "+intro[:12]+" (\"a: add\")\n")
+	dep := write("int a = 2;\n", "a: use\n\nDepends-on: "+intro[:12]+" (\"a: add\")\nLink: https://lore.kernel.org/r/20240101120000.1-2-a@example.com\n")
 	top := write("int a = 3;\n", "a: use more\n\nDepends-on: "+dep[:12]+"\n")
 	gitRun(t, dir, "checkout", "-q", "-b", "side")
 	side := write("int b;\n", "b: on a branch the graph does not read")
@@ -205,6 +205,10 @@ func TestLookupAndFixes(t *testing.T) {
 	}
 	if out, code := capture(t, "--tree", dir, "--no-stable", "--series", "6.1", "prereqs", dep); code != 2 || !strings.Contains(out, "--no-stable") {
 		t.Errorf("prereqs --no-stable = %q, %d, want a usage error", out, code)
+	}
+	out, code = capture(t, "--tree", dir, "patchset", dep[:12])
+	if code != 0 || !strings.Contains(out, fix+"\tmainline") || !strings.Contains(out, dep+"\tmainline") || strings.Contains(out, intro) {
+		t.Errorf("patchset = %q, %d", out, code)
 	}
 	out, code = captureIn(t, fix+"\n"+dep[:12]+" zz\n", "--tree", dir, "fixes", "-")
 	if code != 0 || !strings.Contains(out, fix+"\t"+intro+"\tmainline") || strings.Contains(out, dep+"\t") ||

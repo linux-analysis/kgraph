@@ -4,10 +4,11 @@ kgraph answers questions about the commits of a Linux kernel tree from
 its commit graph: the release that first contains a commit, the stable
 backports of a mainline commit and whether each stable series has it,
 the commits a Fixes: tag names and the later fixes of a commit, the
-commits it needs first, the same patch merged twice, and reverts. It is
-a Go library with a command line, depends on the standard library and
-git only, and reads the whole tree, about two million commits, in about
-20 seconds and 2 GB of memory, or in about half a second from its cache.
+commits it needs first, the same patch merged twice, the patch series a
+commit came in, and reverts. It is a Go library with a command line,
+depends on the standard library and git only, and reads the whole tree,
+about two million commits, in about 20 seconds and 2 GB of memory, or in
+about half a second from its cache.
 
 ## Install
 
@@ -152,11 +153,13 @@ patches it needs first and `needed-by` those that need it, `copies` its
 copies, the mainline commits with one author, author date and subject,
 and that change the same lines when one descends from the other, as a
 fix applied again after its revert, or with one subject and
-cherry-picked one from another, and `reverts` what the commit itself
-reverts and whether it was reverted. A Fixes: id that names no commit,
-or several, stands for the only mainline patch with the subject the tag
-quotes; with `--fixes fixes.txt` it is first looked up in that table of
-corrected ids, which comes from
+cherry-picked one from another, `patchset` the patches of the patch
+series it came in, by the message ids of their `Link:` lines less the
+patch number (git send-email's, b4's and format-patch's), and `reverts`
+what the commit itself reverts and whether it was reverted. A Fixes: id
+that names no commit, or several, stands for the only mainline patch
+with the subject the tag quotes; with `--fixes fixes.txt` it is first
+looked up in that table of corrected ids, which comes from
 [verhaal](https://git.sr.ht/~gregkh/verhaal). A `Revert "…"` whose
 message names no id, or one that names no commit or several, reverts the
 only mainline patch with the quoted subject. A stable or vendor branch's
@@ -202,6 +205,7 @@ p.Commit()                     // its canonical copy
 p.Copies(); p.Backports()      // the backports by dyad's rules, then vendor ones
 p.Fixes(); p.FixedBy()         // by Fixes: tags
 p.Needs(); p.NeededBy()        // by Depends-on:, Cc: stable and Stable-dep-of: tags
+p.Series()                     // its patch series, by the Link: ids
 p.In(ts)                       // whether each series and tree has it
 p.Followups(ts); p.Prereqs(ts) // the related patches they lack
 p.AllPrereqs(ts)               // and the prerequisites of those, as they lack them

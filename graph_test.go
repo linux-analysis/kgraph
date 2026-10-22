@@ -200,6 +200,10 @@ func newKernel(t *testing.T) *kernelRepo {
 	k.m["top"] = r.commit("mm: fix top") // 6.0 takes mm: add base as its dependency
 	k.m["dep"] = r.commit("net: use foo\n\nIt depends on commit " + k.m["fix"][:12] + ".\n\nDepends-on: " + k.m["add"][:12] +
 		" (\"net: add foo\")\nCc: <stable@vger.kernel.org> # 5.15.x: " + k.m["init"][:12] + ": Initial import")
+	// A patch series by the Link: ids, the second one after another link.
+	k.m["ser1"] = r.commit("fs: series one\n\nLink: https://lore.kernel.org/r/20240101120000.1-1-alice@example.com")
+	k.m["ser2"] = r.commit("fs: series two\n\nLink: https://lore.kernel.org/r/bug@example.com\nLink: https://patch.msgid.link/20240101120000.1-2-alice@example.com/")
+	k.m["ser3"] = r.commit("fs: series three\n\nLink: https://lore.kernel.org/linux-fsdevel/20240101120000.2-1-alice@example.com/")
 	k.m["twin1"] = r.commit("drm: fix qux")
 	r.git("tag", "v6.2-rc2")
 	quxAt := r.clock
@@ -226,6 +230,7 @@ func newKernel(t *testing.T) *kernelRepo {
 	k.s["qux60"] = r.commitAt(quxAt, "alice@example.com", "drm: fix qux\n\ncommit "+k.m["twin1"]+" upstream.")
 	k.s["base60"] = r.commit("mm: add base\n\ncommit " + k.m["base"] + " upstream.\n\nStable-dep-of: " + k.m["top"][:12] + " (\"mm: fix top\")")
 	k.s["top60"] = r.commit("mm: fix top\n\ncommit " + k.m["top"] + " upstream.")
+	k.s["ser60"] = r.commit("fs: series one\n\ncommit " + k.m["ser1"] + " upstream.\n\nLink: https://lore.kernel.org/r/20240101120000.1-1-alice@example.com")
 	r.git("tag", "-a", "-m", "Linux 6.0.2", "v6.0.2")
 	k.s["untagged60"] = r.commit("arm: fix baz\n\ncommit " + k.m["late"] + " upstream.")
 	r.git("update-ref", "refs/remotes/stable/linux-6.0.y", "HEAD")
@@ -498,6 +503,11 @@ func TestBuild(t *testing.T) {
 		{"Copies, another author date", copiesOf(g, k.m["dup1"]), []string{k.m["dup1"]}},
 		{"Copies, a backport standing for its patch", copiesOf(g, k.s["qux60"]), []string{k.m["twin1"], k.m["twin2"]}},
 		{"Copies, none", copiesOf(g, k.m["fix"]), []string{k.m["fix"]}},
+		{"Patchset, by the Link: ids", patchsetOf(g, k.m["ser2"]), []string{k.m["ser1"], k.m["ser2"]}},
+		{"Patchset, another series", patchsetOf(g, k.m["ser3"]), []string{k.m["ser3"]}},
+		{"Patchset, a backport standing for its patch", patchsetOf(g, k.s["ser60"]), []string{k.m["ser1"], k.m["ser2"]}},
+		{"Patchset, no Link:", patchsetOf(g, k.m["add"]), []string{k.m["add"]}},
+		{"Patchset, unknown commit", patchsetOf(g, k.other), nil},
 	} {
 		if !slices.Equal(tt.got, tt.want) || (tt.want == nil) != (tt.got == nil) {
 			t.Errorf("%s: got %v, want %v", tt.name, tt.got, tt.want)

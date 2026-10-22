@@ -2,8 +2,8 @@
 // every commit of mainline, of the stable linux-*.y branches, of the v*
 // release tags, of linux-next and of the vendor branches when the tree has
 // them, with the first tag that contains it, the mainline commit a
-// backport was made from, and the commits its Fixes: tags, dependency tags
-// and revert line name.
+// backport was made from, the commits its Fixes: tags, dependency tags and
+// revert line name, and the patch series its Link: lines name.
 //
 // A build runs in stages, each making what the next one reads:
 //
@@ -66,6 +66,7 @@ type Graph struct {
 	fbstart   []uint32
 	needs     keyed // the patches each patch needs first
 	neededBy  keyed // the patches that need each patch first
+	series    keyed // the pool by the patch series of its Link: ids
 
 	layout *Layout
 }

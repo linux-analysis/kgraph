@@ -2,9 +2,9 @@
 // tree from its commit graph: the first release that contains a commit,
 // the stable backports of a mainline commit, the commits a Fixes: tag
 // names and the later fixes of a commit, the commits it needs first, its
-// twins and its reverts, and whether each stable series has it. It also
-// reads the release tags and the stable series kernel.org supports. It
-// never changes the tree: fetching is up to its owner.
+// twins, its patch series and its reverts, and whether each stable series
+// has it. It also reads the release tags and the stable series kernel.org
+// supports. It never changes the tree: fetching is up to its owner.
 package main
 
 import (
@@ -53,6 +53,8 @@ commands:
                          they add or remove other lines than it
   copies HASH...         the mainline commits with its author, date and subject,
                          or with its subject and cherry-picked to or from it
+  patchset HASH...       the mainline commits of the patch series it came in, by the
+                         message ids of their Link: lines
   reverts HASH...        what it reverts, and whether it was reverted
   release TAG...         the mainline release a tag or version belongs to
   tags                   the mainline release tags of the tree
@@ -464,6 +466,7 @@ var relations = map[string]func(kgraph.Commit) []kgraph.Commit{
 	"fixed-by":  func(c kgraph.Commit) []kgraph.Commit { return canonical(c.Patch().FixedBy()) },
 	"deps":      func(c kgraph.Commit) []kgraph.Commit { return canonical(c.Patch().Needs()) },
 	"needed-by": func(c kgraph.Commit) []kgraph.Commit { return canonical(c.Patch().NeededBy()) },
+	"patchset":  func(c kgraph.Commit) []kgraph.Commit { return canonical(c.Patch().Series()) },
 	"copies":    func(c kgraph.Commit) []kgraph.Commit { return c.Patch().Copies() },
 	"backports": func(c kgraph.Commit) []kgraph.Commit { return c.Patch().Backports() },
 }

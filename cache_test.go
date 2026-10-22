@@ -20,8 +20,8 @@ func dump(g *Graph) string {
 	for _, i := range g.order {
 		h := g.hashes[i].String()
 		c, _ := lookupOf(g, h)
-		fmt.Fprintf(&b, "%+v %v %v %v %q %v %v %v %v\n", c, fixesOf(g, h), fixedByOf(g, h), backportsOf(g, h), revertsOf(g, h), revertedOf(g, h), copiesOf(g, h),
-			needsOf(g, h), neededByOf(g, h))
+		fmt.Fprintf(&b, "%+v %v %v %v %q %v %v %v %v %v\n", c, fixesOf(g, h), fixedByOf(g, h), backportsOf(g, h), revertsOf(g, h), revertedOf(g, h), copiesOf(g, h),
+			needsOf(g, h), neededByOf(g, h), patchsetOf(g, h))
 	}
 	return b.String()
 }

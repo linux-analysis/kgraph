@@ -38,5 +38,6 @@ func (g *Graph) derive(p *pass, twins []twin) buildStats {
 	g.fixedBy, g.fbstart = findFixedBy(p, fixes, fstart, pt.of)
 	g.reverters, g.rstart = findReverters(p, revert)
 	g.needs, g.neededBy, st.deps = findDeps(p, pt.of)
+	g.series = keyIndex(g.facts.patchset, p.pool)
 	return st
 }

@@ -38,6 +38,7 @@ type record struct {
 	ident    uint64
 	twin     uint64
 	subject  uint64
+	patchset uint64
 	named    hash
 	hasNamed bool
 	weak     []hash
@@ -203,6 +204,7 @@ func (s *store) add(r record) {
 	f.ident = append(f.ident, r.ident)
 	f.twin = append(f.twin, r.twin)
 	f.subject = append(f.subject, r.subject)
+	f.patchset = append(f.patchset, r.patchset)
 	if r.hasNamed {
 		f.named = append(f.named, namedRef{i, r.named})
 	}

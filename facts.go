@@ -7,16 +7,17 @@ package kgraph
 // known. A change to what the parsers read changes parserDigest, which a
 // test ties to cacheVersion.
 type facts struct {
-	ident   []uint64 // author email in lower case and subject, per commit
-	twin    []uint64 // the same and author date, per commit
-	subject []uint64 // subject, per commit
-	named   []namedRef
-	weak    []namedRef // upstream ids in the weak forms, which count for vendor commits alone, grouped by commit
-	lines   []namedRef // the SHA-1 of the lines a commit changes, as kernel.ChangedLines gives them, for the twins readLines read
-	reverts []fixRef   // one per commit, in stream order
-	fixes   []fixRef   // grouped by commit in stream order
-	deps    []fixRef   // what each commit needs first, grouped so
-	depOf   []fixRef   // the fixes that need each commit first, grouped so
+	ident    []uint64 // author email in lower case and subject, per commit
+	twin     []uint64 // the same and author date, per commit
+	subject  []uint64 // subject, per commit
+	patchset []uint64 // the patch series by the Link: ids, per commit, 0 for none
+	named    []namedRef
+	weak     []namedRef // upstream ids in the weak forms, which count for vendor commits alone, grouped by commit
+	lines    []namedRef // the SHA-1 of the lines a commit changes, as kernel.ChangedLines gives them, for the twins readLines read
+	reverts  []fixRef   // one per commit, in stream order
+	fixes    []fixRef   // grouped by commit in stream order
+	deps     []fixRef   // what each commit needs first, grouped so
+	depOf    []fixRef   // the fixes that need each commit first, grouped so
 }
 
 // namedRef is a commit and the full upstream id its message names.
@@ -35,7 +36,7 @@ type fixRef struct {
 // commit, with the upstream ids, and with the other ids the messages name,
 // each in the order of the cache file.
 func (f *facts) keyCols() []*[]uint64 {
-	return []*[]uint64{&f.ident, &f.twin, &f.subject}
+	return []*[]uint64{&f.ident, &f.twin, &f.subject, &f.patchset}
 }
 
 func (f *facts) namedCols() []*[]namedRef {

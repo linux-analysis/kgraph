@@ -34,6 +34,15 @@ var (
 	dependsOnRe = regexp.MustCompile(`(?i)\bdepends? (?:on|upon) (?:the )?commit ([0-9a-f]{7,40})\b`)
 )
 
+// linkRe matches the message id a Link: line names on lore.kernel.org or
+// patch.msgid.link. seriesRe takes the ids git send-email, old and new,
+// b4 and format-patch --thread give the patches of one series apart from
+// the patch number: what is left names the series.
+var (
+	linkRe   = regexp.MustCompile(`(?im)^[ \t]*link:[ \t]*https?://(?:lore\.kernel\.org|lkml\.kernel\.org|patch\.msgid\.link|msgid\.link)/(?:[\w.-]+/)?([^\s/]+)`)
+	seriesRe = regexp.MustCompile(`^(?:(\d{8}-.+-v\d+)-\d+-([0-9a-f]{6,}@.+)|(\d{14}\.\d+)-\d+-(.+@.+)|(\d{9,10}-\d+)-\d+-(git-send-email-.+)|[0-9a-f]{40}\.(\d{10}\.git\..+))$`)
+)
+
 // rawFix is one Fixes: or dependency tag, or a commit's revert: the id as
 // written and, when a subject is quoted, its hash.
 type rawFix struct {
@@ -91,6 +100,16 @@ func parseMessage(r *record, msg, lower []byte) {
 	for line := range keyLines(msg, lower, "depend") {
 		for _, m := range dependsOnRe.FindAllSubmatch(line, -1) {
 			r.deps = append(r.deps, rawFix{id: bytes.ToLower(m[1])})
+		}
+	}
+	// The last Link: of a series names the commit's: the patch's own link
+	// comes after those to reports and earlier versions. The empty groups
+	// of the other shapes keep the keys of the shapes apart.
+	for line := range keyLines(msg, lower, "link:") {
+		if m := linkRe.FindSubmatch(line); m != nil {
+			if s := seriesRe.FindSubmatch(m[1]); s != nil {
+				r.patchset = sum(s[1:]...)
+			}
 		}
 	}
 }

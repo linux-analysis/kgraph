@@ -129,6 +129,58 @@ func TestParseDeps(t *testing.T) {
 	}
 }
 
+// The message ids of one patch series give one key apart from the patch
+// number: git send-email's, old and new, b4's and format-patch's; another
+// version or series is another key, and an id of no series none.
+func TestPatchsetKey(t *testing.T) {
+	key := func(id string) uint64 {
+		var r record
+		msg := []byte("x: fix\n\nLink: https://lore.kernel.org/r/" + id + "\n")
+		parseMessage(&r, msg, bytes.ToLower(msg))
+		return r.patchset
+	}
+	same := [][2]string{
+		{"20240101120000.12345-1-alice@example.com", "20240101120000.12345-2-alice@example.com"},
+		{"20240101-foo-bar-v2-1-0123456789ab@example.com", "20240101-foo-bar-v2-3-0123456789ab@example.com"},
+		{"1700000000-123-1-git-send-email-alice@example.com", "1700000000-123-2-git-send-email-alice@example.com"},
+		{"0123456789abcdef0123456789abcdef01234567.1700000000.git.alice@example.com", "89abcdef0123456789abcdef0123456789abcdef.1700000000.git.alice@example.com"},
+	}
+	for _, p := range same {
+		if key(p[0]) == 0 || key(p[0]) != key(p[1]) {
+			t.Errorf("%s and %s: keys %d and %d", p[0], p[1], key(p[0]), key(p[1]))
+		}
+	}
+	for _, p := range [][2]string{
+		{"20240101-foo-bar-v2-1-0123456789ab@example.com", "20240101-foo-bar-v3-1-0123456789ab@example.com"},
+		{"20240101120000.12345-1-alice@example.com", "20240101120001.12345-1-alice@example.com"},
+		{same[0][0], same[2][0]},
+	} {
+		if key(p[0]) == key(p[1]) {
+			t.Errorf("%s and %s: one key", p[0], p[1])
+		}
+	}
+	for _, tt := range []struct {
+		id     string
+		series bool
+	}{
+		{"abc123@example.com", false},
+		{"1234567.1700000000@host", false},
+		{"a-1-b@example.com", false},
+		{"20240101120000.12345-1-alice@example.com/T/#u", true}, // a thread view
+	} {
+		if k := key(tt.id); (k != 0) != tt.series {
+			t.Errorf("%s: key %d", tt.id, k)
+		}
+	}
+	var r record
+	msg := []byte("x: fix\n\nLink: https://lore.kernel.org/r/20231201120000.1-1-a@b.c\nLink: https://lore.kernel.org/linux-mm/20240101120000.1-1-a@b.c/\n" +
+		"Link: https://github.com/x/y/issues/1\n")
+	parseMessage(&r, msg, bytes.ToLower(msg))
+	if r.patchset != key("20240101120000.1-1-a@b.c") {
+		t.Errorf("after an earlier version, under a list and before another link: key %d", r.patchset)
+	}
+}
+
 // A revert names what it reverts by id, or by the subject it quotes; a
 // partial revert reverts no commit as a whole.
 func TestRevertID(t *testing.T) {

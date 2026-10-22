@@ -171,6 +171,24 @@ func (p Patch) NeededBy() []Patch {
 	return p.g.patchList(p.g.sorted(withKey(p.g.neededBy, uint64(p.c))))
 }
 
+// Series are the patches of the patch series the patch came in, oldest
+// first: those with mainline or linux-next commits whose Link: lines name
+// a message id of the same series, git send-email's, b4's or
+// format-patch's less the patch number. A patch of no series is alone.
+func (p Patch) Series() []Patch {
+	g := p.g
+	list := []uint32{p.c}
+	for _, m := range g.members[g.mstart[p.c]:g.mstart[p.c+1]] {
+		if key := g.facts.patchset[m]; key != 0 && g.pooled(m) {
+			for _, c := range withKey(g.series, key) {
+				list = append(list, g.of[c])
+			}
+		}
+	}
+	slices.SortFunc(list, g.byDate)
+	return g.patchList(slices.Compact(list))
+}
+
 func (g *Graph) patchList(list []uint32) []Patch {
 	if len(list) == 0 {
 		return nil

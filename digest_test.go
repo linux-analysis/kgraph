@@ -12,7 +12,7 @@ import (
 // anything else, bump cacheVersion, so that no build mixes commits read
 // the old way with new ones, and set both to the new values.
 const (
-	parserDigest        = "2c6251eb1378580f"
+	parserDigest        = "54de5d94b91d0389"
 	parserDigestVersion = 1
 )
 
@@ -40,6 +40,11 @@ var parserCorpus = []string{
 		"Cc: <stable@vger.kernel.org> # 5.10.x: a1f84a3: sctp: Fix ipv6\nCc: stable@vger.kernel.org # 4.14+\n" +
 		"Cc: stable@kernel.org # after 1B9D9A6A: defaced 1234567\nStable-dep-of: deadbeef1234 (\"z: fix\")\n",
 	"x: fix\n\nDepends-on: 20260430-kcov-refactor-v1-1-23a0c7a0ba38@google.com\nCc: stable@vger.kernel.org # 53ab52cfe5ce: alpha: load the MMU context\n",
+	"x: fix\n\nLink: https://lore.kernel.org/r/20240101120000.12345-1-alice@example.com\n",
+	"x: fix\n\nLink: https://patch.msgid.link/20240101-foo-bar-v2-1-0123456789ab@example.com\n",
+	"x: fix\n\nLink: https://lore.kernel.org/r/1700000000-123-1-git-send-email-alice@example.com\n",
+	"x: fix\n\nLink: https://lore.kernel.org/r/0123456789abcdef0123456789abcdef01234567.1700000000.git.alice@example.com\n",
+	"x: fix\n\nLink: https://lore.kernel.org/r/20231201120000.1-1-a@b.c\nLink: https://lore.kernel.org/linux-mm/20240101120000.1-1-a@b.c/\nLink: https://github.com/x/y/issues/1\n",
 	"UPSTREAM: BACKPORT: net: fix foo\n\nBug: 1\n(cherry picked from commit 0123456789abcdef0123456789abcdef01234567)\n",
 	"net: fix foo (bsc#1234567).\n\nsuse-commit: 0123456789abcdef0123456789abcdef01234567\n",
 	"a long subject that git log\nfolds into one line\n\nand a body\n",

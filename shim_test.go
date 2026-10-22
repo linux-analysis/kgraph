@@ -82,6 +82,9 @@ func needsOf(g *Graph, h string) []string {
 func neededByOf(g *Graph, h string) []string {
 	return related(g, h, func(p Patch) []string { return pids(p.NeededBy()) })
 }
+func patchsetOf(g *Graph, h string) []string {
+	return related(g, h, func(p Patch) []string { return pids(p.Series()) })
+}
 func copiesOf(g *Graph, h string) []string {
 	return related(g, h, func(p Patch) []string { return ids(p.Copies()) })
 }
