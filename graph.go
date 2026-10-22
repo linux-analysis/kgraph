@@ -70,7 +70,8 @@ type Graph struct {
 type Options struct {
 	// Cache is the file that keeps the commits a build read for the next
 	// one, or "" for none. A build from it reads only the commits that are
-	// new since; one it does not fit, as after a branch was rewound, reads
+	// new since and drops those no branch or tag reaches any more, as after
+	// a branch was rewound; one it does not fit, as another tree's, reads
 	// them all again. The build maps the file and the graph refers into it,
 	// so the mapping lasts as long as the process.
 	Cache string
@@ -110,12 +111,12 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 		}
 	}
 	cached := len(s.hashes)
-	streamed, err := s.update(ctx, l.dir, tips)
+	streamed, dropped, err := s.update(ctx, l.dir, tips)
 	if err != nil && cached > 0 && ctx.Err() == nil {
 		log.Warn("commit graph cache does not fit the kernel tree, reading every commit", "path", cache, "err", err)
 		s.release()
 		s, cached = newStore(), 0
-		streamed, err = s.update(ctx, l.dir, tips)
+		streamed, dropped, err = s.update(ctx, l.dir, tips)
 	}
 	if err != nil {
 		return nil, err
@@ -127,13 +128,13 @@ func (l *Layout) Build(ctx context.Context, log *slog.Logger) (*Graph, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cache != "" && (streamed > 0 || read > 0) {
+	if cache != "" && (streamed > 0 || dropped > 0 || read > 0) {
 		if err := s.save(cache); err != nil {
 			log.Warn("write commit graph cache", "path", cache, "err", err)
 		}
 	}
 	st := g.derive(p, twins)
-	log.Info("commit graph built", "commits", len(g.hashes), "cached", cached, "streamed", streamed,
+	log.Info("commit graph built", "commits", len(g.hashes), "cached", cached, "streamed", streamed, "dropped", dropped,
 		"mainline", st.mainline, "tags", len(g.tags), "series", l.series, "upstream_named", st.upstream.named,
 		"upstream_by_author", st.upstream.identity, "upstream_rejected_reverts", st.upstream.rejected,
 		"fixes", st.fixes.fixes, "fixes_by_table", st.fixes.tabled, "fixes_by_subject", st.fixes.rescued, "fixes_unresolved", st.fixes.unresolved, "twins", st.twins,

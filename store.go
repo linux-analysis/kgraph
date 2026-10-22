@@ -5,10 +5,10 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"slices"
 
+	"github.com/linux-analysis/kgraph/internal/git"
 	"github.com/linux-analysis/kgraph/kernel"
 )
 
@@ -36,33 +36,35 @@ func newStore() *store {
 	return &store{parents: parents{start: []uint32{0}}}
 }
 
-// update reads the commits tips reach that s lacks and indexes them. A
-// commit of s that tips no longer reach, as one of a rewound branch, is an
-// error: the graph has only what its tips reach. It returns how many
-// commits it read.
-func (s *store) update(ctx context.Context, dir string, tips []hash) (streamed int, err error) {
+// update reads the commits tips reach that s lacks and indexes them, and
+// drops the commits of s that tips no longer reach, as those of a rewound
+// branch: the graph has only what its tips reach. It returns how many
+// commits it read and how many it dropped.
+func (s *store) update(ctx context.Context, dir string, tips []hash) (streamed, dropped int, err error) {
 	before := len(s.hashes)
-	if err := s.stream(ctx, dir, tips, s.tips); err != nil {
-		return 0, err
+	err = s.stream(ctx, dir, tips, s.tips)
+	if err != nil && before > 0 && len(s.hashes) == before && ctx.Err() == nil {
+		// Git prunes the commits of a rewound branch, its old tip among
+		// them, some weeks after: read on from the old tips it still has.
+		// git log may then give commits s has, which add passes over. A
+		// cache none of whose tips the tree has is another tree's.
+		if kept, perr := existing(ctx, dir, s.tips); perr == nil && len(kept) > 0 && len(kept) < len(s.tips) {
+			err = s.stream(ctx, dir, tips, kept)
+		}
+	}
+	if err != nil {
+		return 0, 0, err
 	}
 	streamed = len(s.hashes) - before
 	if streamed > 0 || len(s.order) != len(s.hashes) {
 		s.index()
 	}
-	// The tips of s reach every commit of s, so the same tips leave none.
+	// The tips of s reach every commit of s, so the same tips drop none.
 	if before > 0 && (streamed > 0 || !slices.Equal(tips, s.tips)) {
-		lost := 0
-		for _, r := range s.reached(tips) {
-			if !r {
-				lost++
-			}
-		}
-		if lost > 0 {
-			return 0, fmt.Errorf("%d cached commits are on no branch or tag any more", lost)
-		}
+		dropped = s.keep(s.reached(tips))
 	}
 	s.tips = tips
-	return streamed, nil
+	return streamed, dropped, nil
 }
 
 // readLines reads the lines that each of commits changes and s lacks, for
@@ -91,6 +93,27 @@ func (s *store) readLines(ctx context.Context, dir string, commits []uint32) (in
 		s.facts.lines = append(s.facts.lines, namedRef{c, sha1.Sum([]byte(lines[ids[k]]))})
 	}
 	return len(want), nil
+}
+
+// existing returns the tips that are commits of the repository at dir.
+func existing(ctx context.Context, dir string, tips []hash) ([]hash, error) {
+	var in bytes.Buffer
+	for _, t := range tips {
+		in.WriteString(t.String() + "\n")
+	}
+	out, err := git.Run(ctx, dir, in.Bytes(), "cat-file", "--batch-check")
+	if err != nil {
+		return nil, err
+	}
+	var kept []hash
+	for line := range bytes.Lines(out) {
+		if f := bytes.Fields(line); len(f) == 3 && string(f[1]) == "commit" {
+			if h, ok := parseHash(f[0]); ok {
+				kept = append(kept, h)
+			}
+		}
+	}
+	return kept, nil
 }
 
 // span returns the positions of order whose keys lie between lo and hi,
@@ -280,4 +303,70 @@ func (s *store) reached(tips []hash) []bool {
 		})
 	}
 	return seen
+}
+
+// keep reduces s to the commits reached marks, in their order, so that
+// those of a rewound branch leave the cache and nothing else is read again.
+// A reached commit's parents are reached too. Every column is copied, as
+// those of a loaded cache are the read-only mapping.
+func (s *store) keep(reached []bool) (dropped int) {
+	idx := filled(len(reached))
+	n := 0
+	for i, r := range reached {
+		if r {
+			idx[i] = int32(n)
+			n++
+		}
+	}
+	if n == len(reached) {
+		return 0
+	}
+	p := s.parents
+	kept := parents{start: make([]uint32, 1, n+1), list: make([]uint32, 0, len(p.list))}
+	for i, r := range reached {
+		if r {
+			for _, q := range p.of(uint32(i)) {
+				kept.list = append(kept.list, uint32(idx[q]))
+			}
+			kept.start = append(kept.start, uint32(len(kept.list)))
+		}
+	}
+	s.hashes, s.date = keepAt(s.hashes, reached, n), keepAt(s.date, reached, n)
+	f := &s.facts
+	for _, col := range f.keyCols() {
+		*col = keepAt(*col, reached, n)
+	}
+	for _, col := range f.namedCols() {
+		*col = keepRefs(*col, func(r *namedRef) *uint32 { return &r.commit }, idx)
+	}
+	for _, col := range f.refCols() {
+		*col = keepRefs(*col, func(r *fixRef) *uint32 { return &r.commit }, idx)
+	}
+	s.parents = kept
+	s.index() // sorts the kept hashes again
+	return len(reached) - n
+}
+
+// keepAt returns a copy of the n values of col that reached marks.
+func keepAt[T any](col []T, reached []bool, n int) []T {
+	out := make([]T, 0, n)
+	for i, r := range reached {
+		if r {
+			out = append(out, col[i])
+		}
+	}
+	return out
+}
+
+// keepRefs returns copies of the refs whose commit idx keeps, renumbered.
+// The renumbering keeps the order, so refs grouped by commit stay so.
+func keepRefs[T any](refs []T, commit func(*T) *uint32, idx []int32) []T {
+	out := make([]T, 0, len(refs))
+	for _, r := range refs {
+		if c := commit(&r); idx[*c] != none {
+			*c = uint32(idx[*c])
+			out = append(out, r)
+		}
+	}
+	return out
 }

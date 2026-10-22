@@ -179,10 +179,13 @@ func (s *store) stream(ctx context.Context, dir string, tips, seen []hash) error
 		"--no-replace-objects", "-c", "log.showSignature=false", "log", "-z", "--stdin", "--no-use-mailmap", logFormat)
 }
 
-// add appends one parsed record.
+// add appends one parsed record, unless s has its commit.
 func (s *store) add(r record) {
 	if r.bad {
 		s.malformed++
+		return
+	}
+	if _, known := s.idx(r.hash); known {
 		return
 	}
 	i := uint32(len(s.hashes))

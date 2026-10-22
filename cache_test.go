@@ -98,22 +98,61 @@ func TestBuildCache(t *testing.T) {
 	}
 }
 
-// A cached commit that no tip reaches any more makes the build read every
-// commit again, so that it is not in the graph.
+// A cached commit that no tip reaches any more, as one of a rewound
+// branch, leaves the cache, and nothing else is read again: the graph is
+// the one a build without the cache reads.
 func TestBuildCacheRewound(t *testing.T) {
 	k := newKernel(t)
 	cache := filepath.Join(t.TempDir(), "graph.cache")
 	n := len(build(t, k.dir, remotes).hashes)
 	buildWith(t, k.dir, remotes, cache)
+	same := func(step string, g *Graph, log string) {
+		t.Helper()
+		if strings.Contains(log, "does not fit") {
+			t.Errorf("%s: the cache was read again:\n%s", step, log)
+		}
+		if dump(g) != dump(build(t, k.dir, remotes)) {
+			t.Errorf("%s: another graph than without the cache", step)
+		}
+	}
+
+	// The build reads a mapped cache, so a write into it would fault.
 	k.git("update-ref", "refs/remotes/stable/linux-6.0.y", "v6.0.2^{commit}")
 	g, log := buildWith(t, k.dir, remotes, cache)
-	wantLog(t, log, "does not fit", "1 cached commits are on no branch or tag", fmt.Sprintf("cached=0 streamed=%d", n-1))
+	wantLog(t, log, fmt.Sprintf("commits=%d cached=%d streamed=0 dropped=1", n-1, n))
 	if _, ok := lookupOf(g, k.s["untagged60"]); ok {
 		t.Error("a commit of a rewound branch is in the graph")
 	}
-	if dump(g) != dump(build(t, k.dir, remotes)) {
-		t.Error("another graph than without the cache")
+	same("rewound", g, log)
+	// The cache written without the commit loads, so its columns check.
+	g, log = buildWith(t, k.dir, remotes, cache)
+	wantLog(t, log, fmt.Sprintf("cached=%d streamed=0 dropped=0", n-1))
+	same("after the rewind", g, log)
+
+	// A rebase: the branch gets a commit, then another in its place.
+	k.git("checkout", "-q", "-B", "linux-6.0.y", "v6.0.2")
+	k.commit("net: fix bar")
+	k.git("update-ref", "refs/remotes/stable/linux-6.0.y", "HEAD")
+	_, log = buildWith(t, k.dir, remotes, cache)
+	wantLog(t, log, fmt.Sprintf("cached=%d streamed=1 dropped=0", n-1))
+	k.git("reset", "-q", "--hard", "v6.0.2")
+	k.commit("net: fix bar again")
+	k.git("update-ref", "refs/remotes/stable/linux-6.0.y", "HEAD")
+	g, log = buildWith(t, k.dir, remotes, cache)
+	wantLog(t, log, fmt.Sprintf("commits=%d cached=%d streamed=1 dropped=1", n, n))
+	same("rebased", g, log)
+
+	// Rebased again, and git pruned the tip the cache knows.
+	pruned := k.git("rev-parse", "HEAD")
+	k.git("reset", "-q", "--hard", "v6.0.2")
+	k.commit("net: fix bar once more")
+	k.git("update-ref", "refs/remotes/stable/linux-6.0.y", "HEAD")
+	if err := os.Remove(filepath.Join(k.dir, ".git", "objects", pruned[:2], pruned[2:])); err != nil {
+		t.Fatal(err)
 	}
+	g, log = buildWith(t, k.dir, remotes, cache)
+	wantLog(t, log, fmt.Sprintf("commits=%d cached=%d streamed=1 dropped=1", n, n))
+	same("pruned", g, log)
 }
 
 // A cache the build cannot use is read again from git and replaced.
