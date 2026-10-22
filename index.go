@@ -67,6 +67,16 @@ func sortByKey(keys []uint64, vals []uint32) {
 	}
 }
 
+// pairIndex indexes the pairs a<<32|b by a.
+func pairIndex(pairs []uint64) keyed {
+	slices.Sort(pairs)
+	idx := keyed{make([]uint64, len(pairs)), make([]uint32, len(pairs))}
+	for j, p := range pairs {
+		idx.keys[j], idx.commits[j] = p>>32, uint32(p)
+	}
+	return idx
+}
+
 // group collects the values each pair of edges emits under its key: those
 // of key k are list[start[k]:start[k+1]], ordered by less.
 func group(n int, edges func(emit func(key, v uint32)), less func(a, b uint32) int) (list, start []uint32) {

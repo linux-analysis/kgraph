@@ -40,6 +40,7 @@ type record struct {
 	subject  uint64
 	named    hash
 	hasNamed bool
+	weak     []hash
 	revert   rawFix
 	fixes    []rawFix
 	bad      bool
@@ -79,7 +80,7 @@ func parseRecord(rec []byte, lower *[]byte) record {
 	}
 	r.date, _ = strconv.ParseInt(string(f[2]), 10, 64)
 	msg := f[5]
-	subject := subjectOf(msg)
+	subject := plainSubject(subjectOf(msg))
 	r.subject = sum(subject)
 	// One author writes their email address in more than one case.
 	email := bytes.ToLower(f[3])
@@ -199,6 +200,9 @@ func (s *store) add(r record) {
 	f.subject = append(f.subject, r.subject)
 	if r.hasNamed {
 		f.named = append(f.named, namedRef{i, r.named})
+	}
+	for _, w := range r.weak {
+		f.weak = append(f.weak, namedRef{i, w})
 	}
 	if r.revert.id != nil {
 		f.reverts = append(f.reverts, fixRef{i, r.revert})

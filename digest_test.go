@@ -12,7 +12,7 @@ import (
 // anything else, bump cacheVersion, so that no build mixes commits read
 // the old way with new ones, and set both to the new values.
 const (
-	parserDigest        = "460bec4687c02c57"
+	parserDigest        = "8222f92108e257b9"
 	parserDigestVersion = 1
 )
 
@@ -23,6 +23,10 @@ var parserCorpus = []string{
 	"net: fix foo\n\n[ Upstream commit 0123456789abcdef0123456789abcdef01234567 ]\n\nFixes: commit 89abcdef0123\n",
 	"x: fix\n\nbody\n(cherry picked from commit 0123456789abcdef0123456789abcdef01234567)\nOrabug: 1\n",
 	"[ Backport of upstream commit 0123456789abcdef0123456789abcdef01234567 ]",
+	"x: fix\n\nJIRA: https://issues.redhat.com/browse/RHEL-1\n\ncommit 0123456789abcdef0123456789abcdef01234567\nAuthor: A <a@example.com>\nDate:   Mon Jan 1 00:00:00 2024 +0000\n\n    x: fix\n\n    commit 89abcdef0123456789abcdef0123456789abcdef upstream.\n",
+	"x: fix\n\n(backported from commit 0123456789abcdef0123456789abcdef01234567 linux-6.6.y)\nSigned-off-by: B <b@example.com>\n",
+	"x: fix two\n\ncommit 0123456789abcdef0123456789abcdef01234567\nAuthor: A <a@example.com>\n\n    x: one\n\ncommit 89abcdef0123456789abcdef0123456789abcdef\nAuthor: B <b@example.com>\n\n    x: two\n",
+	"Merge DRM changes from upstream v6.18..v6.19\n\nJIRA: https://issues.redhat.com/browse/RHEL-1\n\nCommit list:\ncommit 0123456789abcdef0123456789abcdef01234567\ncommit 89abcdef0123456789abcdef0123456789abcdef\n",
 	"Revert \"net: fix foo\"\n\nThis reverts commit\n0123456789abcdef0123456789abcdef01234567.\n",
 	"x: undo\n\nThis reverts 0123456, which broke y.\n",
 	"Revert \"x: add\"\n\nThis reverts upstream commit 0123456789abcdef0123456789abcdef01234567\nfrom stable.\n",
@@ -30,6 +34,8 @@ var parserCorpus = []string{
 	"x: tidy\n\nThis partially reverts commit 0123456789ab (\"x: add\").\n",
 	"Revert commit 89abcdef0123 which is commit\n0123456789abcdef0123456789abcdef01234567 upstream.",
 	"mm: fix bar\n\n  Fixes: commit deadbeef1234 (\"net: add foo\")\nLink: https://lore.kernel.org/r/1/Fixes: 0123456789ab (\"Initial import\")\n",
+	"UPSTREAM: BACKPORT: net: fix foo\n\nBug: 1\n(cherry picked from commit 0123456789abcdef0123456789abcdef01234567)\n",
+	"net: fix foo (bsc#1234567).\n\nsuse-commit: 0123456789abcdef0123456789abcdef01234567\n",
 	"a long subject that git log\nfolds into one line\n\nand a body\n",
 	"\n\nleading blank lines\n",
 	"no id\x1finside",

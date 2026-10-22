@@ -11,6 +11,7 @@ type facts struct {
 	twin    []uint64 // the same and author date, per commit
 	subject []uint64 // subject, per commit
 	named   []namedRef
+	weak    []namedRef // upstream ids in the weak forms, which count for vendor commits alone, grouped by commit
 	lines   []namedRef // the SHA-1 of the lines a commit changes, as kernel.ChangedLines gives them, for the twins readLines read
 	reverts []fixRef   // one per commit, in stream order
 	fixes   []fixRef   // grouped by commit in stream order
@@ -36,7 +37,7 @@ func (f *facts) keyCols() []*[]uint64 {
 }
 
 func (f *facts) namedCols() []*[]namedRef {
-	return []*[]namedRef{&f.named, &f.lines}
+	return []*[]namedRef{&f.named, &f.weak, &f.lines}
 }
 
 func (f *facts) refCols() []*[]fixRef {

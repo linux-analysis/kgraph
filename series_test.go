@@ -165,7 +165,8 @@ func TestRevertReappliedInOneSecond(t *testing.T) {
 }
 
 // A backport of a mainline revert undoes the reverted commit though its
-// message names none, by its upstream line alone.
+// message names none: a stable one by its upstream line alone, a vendor
+// one by SUSE's subject alone.
 func TestRevertBackportWithoutRevertLine(t *testing.T) {
 	r := newRepo(t)
 	r.commit("init")
@@ -182,14 +183,20 @@ func TestRevertBackportWithoutRevertLine(t *testing.T) {
 	r.git("checkout", "-q", "-b", "linux-5.1.y", "v5.1")
 	stable := r.commit("serial: Revert \"serial: drop foo\"\n\ncommit " + rev + " upstream.")
 	r.git("tag", "v5.1.1")
+	r.git("checkout", "-q", "-b", "sl", "v5.1")
+	pick := r.commitAs("suse@example.com", "serial: Revert \"serial: drop foo\" (bsc#1).\n\nsuse-commit: 0123")
+	r.git("update-ref", "refs/remotes/suse/sl", "HEAD")
 	r.git("checkout", "-q", "master")
-	g := build(t, r.dir, kernel.Remotes{})
-	ts := targets(t, g, "5.1")
-	want := []Presence{{Series: "5.1"}}
-	if got := inSeriesOf(g, x, ts); !slices.Equal(got, want) {
-		t.Errorf("InSeries(x) = %v, want %v: the backport reverts it", got, want)
+	g := build(t, r.dir, kernel.Remotes{Vendors: []string{"suse"}})
+	if c := lookup(t, g, pick); c.Upstream != rev {
+		t.Fatalf("upstream of the pick = %q, want %s", c.Upstream, rev)
 	}
-	want = []Presence{{Series: "5.1", Tag: "v5.1.1", Commit: stable}}
+	ts := targets(t, g, "5.1", "suse/sl")
+	want := []Presence{{Series: "5.1"}, {Series: "suse/sl"}}
+	if got := inSeriesOf(g, x, ts); !slices.Equal(got, want) {
+		t.Errorf("InSeries(x) = %v, want %v: the backports revert it", got, want)
+	}
+	want = []Presence{{Series: "5.1", Tag: "v5.1.1", Commit: stable}, {Series: "suse/sl", Commit: pick}}
 	if got := inSeriesOf(g, rev, ts); !slices.Equal(got, want) {
 		t.Errorf("InSeries(revert) = %v, want %v", got, want)
 	}
@@ -293,5 +300,30 @@ func TestRevertPickAroundMerge(t *testing.T) {
 	want := []Presence{{Series: "android/after"}, {Series: "android/before", Commit: backport}}
 	if got := inSeriesOf(g, x, targets(t, g, "android/after", "android/before")); !slices.Equal(got, want) {
 		t.Errorf("InSeries = %v, want %v", got, want)
+	}
+}
+
+// A vendor branch's own revert of its backport, by id, gets no upstream
+// from the subject of a mainline revert of the patch.
+func TestVendorRevertOfBackportHasNoUpstream(t *testing.T) {
+	r := newRepo(t)
+	r.commit("init")
+	r.git("tag", "v5.0")
+	x := r.commit("bpf: add foo")
+	r.commitAs("bob@example.com", "Revert \"bpf: add foo\"\n\nThis reverts commit "+x+".")
+	r.git("tag", "v5.1")
+	r.git("checkout", "-q", "-b", "linux-5.0.y", "v5.0")
+	b := r.commit("bpf: add foo\n\ncommit " + x + " upstream.")
+	r.git("tag", "v5.0.1")
+	r.git("checkout", "-q", "-b", "a16", "v5.0.1")
+	own := r.commitAs("greg@example.com", "Revert \"bpf: add foo\"\n\nThis reverts commit "+b+".")
+	r.git("update-ref", "refs/remotes/android/a16", "HEAD")
+	r.git("checkout", "-q", "master")
+	g := build(t, r.dir, kernel.Remotes{Vendors: []string{"android"}})
+	if c := lookup(t, g, own); c.Upstream != "" {
+		t.Errorf("upstream = %s, want none", c.Upstream)
+	}
+	if got := revertsOf(g, own); got != b {
+		t.Errorf("Reverts = %q, want %s", got, b)
 	}
 }

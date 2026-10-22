@@ -37,6 +37,22 @@ func parseMessage(r *record, msg, lower []byte) {
 			r.named, r.hasNamed = parseHash([]byte(id))
 		}
 	}
+	// Red Hat's header starts a line with "commit ", far rarer than the
+	// letters of "author:", which a substring search has to try one by one.
+	if bytes.Contains(lower, []byte("\ncommit ")) && bytes.Contains(lower, []byte("author:")) || bytes.Contains(lower, []byte("backported from")) {
+		for _, m := range weakRe.FindAllSubmatch(msg, -1) {
+			if h, ok := parseHash(bytes.Join(m[1:], nil)); ok {
+				r.weak = append(r.weak, h)
+			}
+		}
+	}
+	if i := bytes.Index(lower, []byte("\ncommit list:\n")); i >= 0 {
+		for _, m := range commitListRe.FindAllSubmatch(msg[i:], -1) {
+			if h, ok := parseHash(m[1]); ok {
+				r.weak = append(r.weak, h)
+			}
+		}
+	}
 	if bytes.Contains(lower, []byte("reverts")) {
 		for _, m := range revertRe.FindAllSubmatch(msg, -1) {
 			if m[1] == nil {
@@ -80,7 +96,7 @@ func tagLines(msg, lower []byte, key string, re *regexp.Regexp) []rawFix {
 		for _, m := range re.FindAllSubmatch(line, -1) {
 			fx := rawFix{id: bytes.ToLower(m[1])}
 			if q := quotedRe.FindSubmatch(m[2]); q != nil {
-				fx.subject, fx.quoted = sum(bytes.TrimSpace(q[1])), true
+				fx.subject, fx.quoted = sum(plainSubject(bytes.TrimSpace(q[1]))), true
 			}
 			refs = append(refs, fx)
 		}
@@ -127,10 +143,49 @@ var upstreamRe = regexp.MustCompile(`(?mi)^[\[( ]*(?:com+(?:it|in):?[\s\x{a0}]+(
 
 // namedUpstream returns the upstream commit that a backport's message
 // names, or "" when it names none.
-func namedUpstream(msg []byte) string {
-	m := upstreamRe.FindSubmatch(msg)
+func namedUpstream(msg []byte) string { return matchedID(upstreamRe, msg) }
+
+// matchedID returns the id of re's first match in msg, which one of its
+// groups holds, or "".
+func matchedID(re *regexp.Regexp, msg []byte) string {
+	m := re.FindSubmatch(msg)
 	if m == nil {
 		return ""
 	}
 	return string(bytes.Join(m[1:], nil))
+}
+
+// weakRe matches the forms by which a vendor tree names an upstream commit
+// and that mean something else elsewhere: the "commit <hash>" header block
+// Red Hat quotes, which stable commits use to quote some other commit, and
+// Ubuntu's "(backported from commit <hash>)". findNamed takes them for a
+// commit of a vendor branch alone, over an upstreamRe form when they name a
+// mainline commit: Red Hat's quoted message keeps the upstream's own
+// lines, which name other commits. Red Hat quotes a header per upstream
+// commit, so a message may hold several.
+var weakRe = regexp.MustCompile(`(?mi)^commit ([0-9a-f]{40})\n\s*author:|\(backported from commit ([0-9a-f]{40})`)
+
+// commitListRe matches an entry of the "Commit list:" by which Red Hat's
+// DRM rebases name the upstream commits they bring, a weak form too.
+var commitListRe = regexp.MustCompile(`(?m)^commit ([0-9a-f]{40})$`)
+
+// Vendor trees decorate the subject of a patch: Android with prefixes such
+// as "UPSTREAM: " or "BACKPORT: FROMGIT: ", SUSE with a trailing reference
+// such as " (bsc#1234567)." or " (git-fixes).". plainSubject strips them,
+// so that the subject, and the author with it, still name the patch.
+var (
+	prefixRe = regexp.MustCompile(`^(?:(?:UPSTREAM|BACKPORT|FROMGIT|FROMLIST|ANDROID|NOUPSTREAM): )+`)
+	suffixRe = regexp.MustCompile(` \([^()]*\)\.$`)
+)
+
+func plainSubject(subject []byte) []byte {
+	if m := prefixRe.FindIndex(subject); m != nil {
+		subject = subject[m[1]:]
+	}
+	if bytes.HasSuffix(subject, []byte(").")) {
+		if m := suffixRe.FindIndex(subject); m != nil {
+			subject = subject[:m[0]]
+		}
+	}
+	return subject
 }

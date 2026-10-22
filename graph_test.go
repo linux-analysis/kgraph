@@ -627,9 +627,9 @@ func TestTwinsOnOneLine(t *testing.T) {
 	}
 }
 
-// An identity or a subject that copies of one patch share names that
-// patch, by its canonical copy: in a stable branch and a Fixes: tag whose
-// id names no commit.
+// A subject or an identity that copies of one patch share names that
+// patch, by its canonical copy: in a vendor branch, a stable branch and a
+// Fixes: tag whose id names no commit.
 func TestSubjectOfCopies(t *testing.T) {
 	r := newRepo(t)
 	base := r.commit("init")
@@ -641,15 +641,20 @@ func TestSubjectOfCopies(t *testing.T) {
 	r.git("checkout", "-q", "-b", "linux-6.0.y", "v6.0")
 	stable := r.commit("drm: fix qux")
 	r.git("tag", "v6.0.1")
+	r.git("checkout", "-q", "-b", "sl", "v6.0")
+	suse := r.commitAs("suse@example.com", "drm: fix qux (bsc#1).")
+	r.git("update-ref", "refs/remotes/suse/sl", "HEAD")
 	r.git("checkout", "-q", "master")
-	g := build(t, r.dir, kernel.Remotes{})
+	g := build(t, r.dir, kernel.Remotes{Vendors: []string{"suse"}})
 	copies := copiesOf(g, second)
 	if len(copies) != 2 || !slices.Contains(copies, first) {
 		t.Fatalf("Copies = %v, want %s and %s", copies, first, second)
 	}
 	canonical := copies[0]
-	if c := lookup(t, g, stable); c.Upstream != canonical {
-		t.Errorf("upstream = %q, want the canonical copy %s", c.Upstream, canonical)
+	for _, h := range []string{stable, suse} {
+		if c := lookup(t, g, h); c.Upstream != canonical {
+			t.Errorf("upstream of %s = %q, want the canonical copy %s", h, c.Upstream, canonical)
+		}
 	}
 	if got := fixesOf(g, fix); !slices.Equal(got, []string{canonical}) {
 		t.Errorf("Fixes(fix) = %v, want [%s]", got, canonical)
@@ -954,6 +959,41 @@ func TestBuildVendor(t *testing.T) {
 	}
 }
 
+// A vendor commit that names several mainline commits, in the commit list
+// of Red Hat's DRM rebases or by a quoted header each, is a backport of
+// each and has no one upstream; the branch has every one of them through
+// it.
+func TestSquashedRebase(t *testing.T) {
+	k := newKernel(t)
+	header := func(h string) string {
+		return "commit " + h + "\nAuthor: Author <alice@example.com>\nDate:   Mon Jan 1 00:00:00 2024 +0000\n\n    x\n\n"
+	}
+	k.git("checkout", "-q", "-b", "c10s", "v6.0")
+	squash := k.commitAs("rh@example.com", "Merge DRM changes from upstream\n\nConflicts:\n x.c\n\nCommit list:\ncommit "+k.m["fix"]+"\ncommit "+k.m["late"]+"\n")
+	two := k.commitAs("rh@example.com", "x: fix two\n\n"+header(k.m["fix"])+header(k.m["late"])+header(k.m["fix"]))
+	// The branch's own revert of one of them takes out that one alone.
+	k.commitAs("rh@example.com", "Revert \"net: fix foo\"\n\nThis reverts commit "+k.m["fix"]+".")
+	k.git("update-ref", "refs/remotes/centos/main", "HEAD")
+	k.git("checkout", "-q", "master")
+	rem := remotes
+	rem.Vendors = []string{"centos"}
+	g := build(t, k.dir, rem)
+	for _, c := range []string{squash, two} {
+		if c := lookup(t, g, c); c.Upstream != "" {
+			t.Errorf("upstream of %s = %q, want none", c.Hash, c.Upstream)
+		}
+	}
+	if got := backportsOf(g, k.m["late"]); !slices.Contains(got, squash) || !slices.Contains(got, two) {
+		t.Errorf("Backports(late) = %v, want the squash and %s among them", got, two)
+	}
+	if got := inSeriesOf(g, k.m["late"], targets(t, g, "centos/main")); got[0].Commit != squash {
+		t.Errorf("InSeries(late) = %v, want it through the squash", got)
+	}
+	if got := inSeriesOf(g, k.m["fix"], targets(t, g, "centos/main")); got[0].Commit != "" {
+		t.Errorf("InSeries(fix) = %v, want none: the branch reverted it", got)
+	}
+}
+
 // A branch that points at an annotated tag stands for the tagged commit,
 // as git log takes it, so the commit is in the branch's tree and the cache
 // fits the next build.
@@ -973,5 +1013,55 @@ func TestBuildBranchAtTag(t *testing.T) {
 	}
 	if _, log := buildWith(t, k.dir, rem, cache); !strings.Contains(log, "streamed=0") || strings.Contains(log, "does not fit") {
 		t.Errorf("second build:\n%s", log)
+	}
+}
+
+// A vendor branch's commits name their upstream in forms stable and
+// mainline use for other commits, or by author and subject under a vendor
+// prefix, or by the subject alone under a vendor suffix; the same messages
+// in a stable branch name nothing, and a merge nothing at all.
+func TestBuildVendorForms(t *testing.T) {
+	k := newKernel(t)
+	block := "net: fix foo\n\nJIRA: https://issues.redhat.com/browse/RHEL-1\n\ncommit " + k.m["fix"] +
+		"\nAuthor: Author <alice@example.com>\nDate:   Mon Jan 1 00:00:00 2024 +0000\n\n    net: fix foo\n\n    Fixes: " +
+		k.m["add"][:12] + " (\"net: add foo\")\n\nSigned-off-by: Red Hatter <rh@example.com>"
+	suse := "fs: fix once (bsc#1234567).\n\nsuse-commit: 0123456789abcdef0123456789abcdef01234567"
+	quoted := strings.Replace(block, "\n\nSigned-off-by: Red Hatter", "\n    (cherry picked from commit "+strings.Repeat("e", 40)+")\n\nSigned-off-by: Red Hatter", 1)
+	k.git("checkout", "-q", "-b", "u2", "v6.0")
+	rhel := k.commitAs("rh@example.com", block)
+	rhelQuoted := k.commitAs("rh@example.com", "x: "+quoted)
+	backported := k.commit("arm: fix baz\n\nbody\n(backported from commit " + k.m["late"] + ")\nSigned-off-by: Dev <dev@example.com>")
+	bySubject := k.commitAs("suse@example.com", suse)
+	prefixed := k.commitAs("alice@example.com", "FROMLIST: arm: fix baz\n\nBug: 2")
+	picked := k.commitAs("alice@example.com", "UPSTREAM: fs: fix again\n\nBug: 3\n\n(cherry picked from commit "+k.m["again"]+")")
+	k.gitAs("suse@example.com", "merge", "-q", "--no-ff", "-m", "Merge window opens", "-m", "commit "+k.m["fix"]+" upstream.", "v6.1")
+	merge := k.git("rev-parse", "HEAD")
+	k.git("update-ref", "refs/remotes/uek/u2", "HEAD")
+	k.git("checkout", "-q", "linux-6.0.y")
+	sblock := k.commitAs("rh@example.com", block)
+	ssuse := k.commitAs("suse@example.com", suse)
+	k.git("update-ref", "refs/remotes/stable/linux-6.0.y", "HEAD")
+	k.git("checkout", "-q", "master")
+	rem := remotes
+	rem.Vendors = []string{"uek"}
+	cache := filepath.Join(t.TempDir(), "graph.cache")
+	for _, cached := range []bool{false, true} {
+		g, log := buildWith(t, k.dir, rem, cache)
+		wantLog(t, log, "upstream_by_subject=1")
+		for name, tt := range map[string]struct{ hash, upstream string }{
+			"rhel block":             {rhel, k.m["fix"]},
+			"rhel quoted pick":       {rhelQuoted, k.m["fix"]},
+			"backported from":        {backported, k.m["late"]},
+			"suse subject":           {bySubject, k.m["once"]},
+			"android prefix":         {prefixed, k.m["late"]},
+			"android pick":           {picked, k.m["again"]},
+			"merge":                  {merge, ""},
+			"block in stable":        {sblock, ""},
+			"suse subject in stable": {ssuse, ""},
+		} {
+			if c := lookup(t, g, tt.hash); c.Upstream != tt.upstream {
+				t.Errorf("%s (cached %v): upstream %q, want %q", name, cached, c.Upstream, tt.upstream)
+			}
+		}
 	}
 }

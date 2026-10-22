@@ -79,7 +79,10 @@ func (c Commit) SeriesRelease() kernel.Release {
 
 // Upstream is the mainline commit a backport was made from: the one its
 // message names, or else the only earlier mainline commit with its author
-// and subject. ok is false for a commit that is no backport.
+// and subject, or for a vendor commit with its subject alone. ok is false
+// for a commit that is no backport, and for a vendor commit that names
+// several upstreams, as Red Hat's squashed rebases do: it is a backport of
+// each, a patch of its own.
 func (c Commit) Upstream() (Commit, bool) { return c.g.commit(c.g.upstream[c.i]) }
 
 // Reverts is the commit that the commit reverts; ok is false when it

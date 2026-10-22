@@ -57,6 +57,17 @@ vendors' release tags are of no use to kgraph:
     git remote add uek --no-tags -t uek8/u2 https://github.com/oracle/linux-uek.git
     git remote add c9s --no-tags -t main https://gitlab.com/redhat/centos-stream/src/kernel/centos-stream-9.git
 
+A vendor commit's upstream is the mainline commit its message names, in
+the usual upstream lines or, for vendor branches alone, in Red Hat's
+quoted `commit`/`Author:` header and Ubuntu's `(backported from commit
+X)` line; failing that, the mainline commit with its author and subject,
+Android's `UPSTREAM:` prefixes and SUSE's `(bsc#N).` references set
+aside; failing that, for SUSE's patches, which keep neither an upstream
+line nor the author, the one mainline commit with its subject. A vendor
+commit that names several mainline commits, as Red Hat's DRM rebases
+list them under `Commit list:`, has no one upstream and is a backport of
+each.
+
 The graph is built from the mainline branch, the `linux-*.y` branches of
 the stable remote, the `v*` release tags, linux-next and the vendor
 branches. The commits read are kept in a cache file, one per tree under

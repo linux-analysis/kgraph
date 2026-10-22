@@ -40,6 +40,45 @@ func TestNamedUpstream(t *testing.T) {
 	}
 }
 
+// The weak forms name an upstream commit in a vendor tree: Red Hat's
+// quoted header and Ubuntu's backported-from line; not the strong forms,
+// which namedUpstream takes first.
+func TestWeakUpstream(t *testing.T) {
+	const h = "0123456789abcdef0123456789abcdef01234567"
+	for _, tt := range []struct{ msg, want string }{
+		{"x: fix\n\nJIRA: https://issues.redhat.com/browse/RHEL-1\n\ncommit " + h + "\nAuthor: A <a@example.com>\nDate:   Mon Jan 1 00:00:00 2024 +0000\n\n    x: fix", h},
+		{"x: fix\n\n(backported from commit " + h + ")", h},
+		{"x: fix\n\n(backported from commit " + h + " linux-6.6.y)", h},
+		{"commit " + h + " broke it", ""},
+		{"x: fix\n\n(cherry picked from commit " + h + ")", ""},
+	} {
+		if got := matchedID(weakRe, []byte(tt.msg)); got != tt.want {
+			t.Errorf("weak upstream of %q = %q, want %q", tt.msg, got, tt.want)
+		}
+	}
+}
+
+// plainSubject strips Android's prefixes and SUSE's reference suffix,
+// nothing else.
+func TestPlainSubject(t *testing.T) {
+	for _, tt := range []struct{ in, want string }{
+		{"net: fix foo", "net: fix foo"},
+		{"UPSTREAM: net: fix foo", "net: fix foo"},
+		{"BACKPORT: FROMGIT: net: fix foo", "net: fix foo"},
+		{"ANDROID: GKI: add symbols", "GKI: add symbols"},
+		{"android: binder: fix", "android: binder: fix"},
+		{"net: fix foo (bsc#1234567).", "net: fix foo"},
+		{"net: fix foo (git-fixes).", "net: fix foo"},
+		{"net: fix foo (CVE-2024-1 bsc#2).", "net: fix foo"},
+		{"net: fix foo (part 2)", "net: fix foo (part 2)"},
+		{"net: fix (foo) bar.", "net: fix (foo) bar."},
+	} {
+		if got := string(plainSubject([]byte(tt.in))); got != tt.want {
+			t.Errorf("plainSubject(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 // A revert names what it reverts by id; a partial revert reverts no commit
 // as a whole.
 func TestRevertID(t *testing.T) {

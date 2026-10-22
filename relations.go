@@ -48,13 +48,17 @@ func findFixes(p *pass, copyOf []uint32) (fixes, fstart []uint32, st fixStats) {
 }
 
 // findBackports lists the backports of each patch under its canonical
-// copy, in version order of their tags.
-func findBackports(p *pass, upstream []int32, of []uint32) (backports, bstart []uint32) {
+// copy, in version order of their tags: the commits with its upstream, and
+// those several pairs with it.
+func findBackports(p *pass, upstream []int32, several keyed, of []uint32) (backports, bstart []uint32) {
 	return group(p.n, func(emit func(key, v uint32)) {
 		for i, u := range upstream {
 			if u != none {
 				emit(of[u], uint32(i))
 			}
+		}
+		for j, c := range several.keys {
+			emit(of[several.commits[j]], uint32(c))
 		}
 	}, func(a, b uint32) int {
 		return cmp.Or(cmp.Compare(uint32(p.firstTag[a]), uint32(p.firstTag[b])), bytes.Compare(p.hashes[a][:], p.hashes[b][:]))

@@ -21,14 +21,14 @@ func (g *Graph) derive(p *pass, twins []twin) buildStats {
 			st.mainline++
 		}
 	}
-	named := findNamed(p)
+	named, several := findNamed(p)
 	copyOf, nTwins := findCopies(p, named, twins)
 	st.twins = nTwins
 	revert := findReverts(p)
-	upstream, ust := findUpstreams(p, named, revert, copyOf)
+	upstream, ust := findUpstreams(p, named, revert, several, copyOf)
 	st.upstream = ust
 	pt := findPatches(p, upstream, copyOf)
-	g.backports, g.bstart = findBackports(p, upstream, pt.of)
+	g.backports, g.bstart = findBackports(p, upstream, several, pt.of)
 	ownReverts(p, revert, upstream, pt.of, g.backports, g.bstart)
 	fixes, fstart, fst := findFixes(p, copyOf)
 	st.fixes = fst
