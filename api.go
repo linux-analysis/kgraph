@@ -89,6 +89,12 @@ func (c Commit) Upstream() (Commit, bool) { return c.g.commit(c.g.upstream[c.i])
 // reverts none.
 func (c Commit) Reverts() (Commit, bool) { return c.g.commit(c.g.revert[c.i]) }
 
+// Fixes are the commits that the commit's own Fixes: tags name, in message
+// order: by id, or by the quoted subject when no commit of the graph has
+// the id. A tag that names a backport names that backport, where the
+// patch's Fixes name the patch it carries.
+func (c Commit) Fixes() []Commit { return c.g.commits(c.g.fixes[c.g.fstart[c.i]:c.g.fstart[c.i+1]]) }
+
 // RevertedBy are the commits that revert the commit, oldest first.
 func (c Commit) RevertedBy() []Commit {
 	return c.g.commits(c.g.reverters[c.g.rstart[c.i]:c.g.rstart[c.i+1]])

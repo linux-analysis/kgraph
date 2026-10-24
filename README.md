@@ -200,6 +200,7 @@ g.Ambiguous(id)                // whether several commits have the abbreviated i
 c.Hash(); c.Tree(); c.Tag(); c.Release(); c.Date()
 c.Upstream()                   // the mainline commit a backport was made from
 c.Reverts(); c.RevertedBy()
+c.Fixes()                      // what its own Fixes: tags name
 p := c.Patch()                 // the change: its copies and backports
 p.Commit()                     // its canonical copy
 p.Copies(); p.Backports()      // the backports by dyad's rules, then vendor ones

@@ -604,6 +604,44 @@ func TestBuildFixesTable(t *testing.T) {
 	}
 }
 
+// A commit's Fixes are what its own tags name: a stable fix of a backport
+// names the backport, where its patch names the backport's upstream, and
+// a backport without tags names nothing, where its patch has its
+// upstream's.
+func TestCommitFixes(t *testing.T) {
+	r := newRepo(t)
+	add := r.commit("net: add foo")
+	r.git("tag", "v6.0")
+	fix := r.commit("net: fix foo\n\nFixes: " + add[:12] + " (\"net: add foo\")")
+	r.git("update-ref", "refs/remotes/mainline/master", "HEAD")
+	r.git("checkout", "-q", "-b", "linux-6.0.y", "v6.0")
+	fix60 := r.commit("net: fix foo\n\ncommit " + fix + " upstream.")
+	own := r.commit("net: fix the backport of foo\n\nFixes: " + fix60[:12] + " (\"net: fix foo\")")
+	r.git("tag", "v6.0.1")
+	r.git("update-ref", "refs/remotes/stable/linux-6.0.y", "HEAD")
+	g := build(t, r.dir, remotes)
+	for _, tc := range []struct {
+		h          string
+		own, patch []string
+	}{
+		{fix, []string{add}, []string{add}},
+		{fix60, nil, []string{add}},
+		{own, []string{fix60}, []string{fix}},
+		{add, nil, nil},
+	} {
+		c, ok := g.Commit(tc.h)
+		if !ok {
+			t.Fatalf("%s is not in the graph", tc.h)
+		}
+		if got := ids(c.Fixes()); !slices.Equal(got, tc.own) {
+			t.Errorf("Commit(%s).Fixes = %v, want %v", tc.h, got, tc.own)
+		}
+		if got := fixesOf(g, tc.h); !slices.Equal(got, tc.patch) {
+			t.Errorf("Patch(%s).Fixes = %v, want %v", tc.h, got, tc.patch)
+		}
+	}
+}
+
 // A fix reworked for -fixes and cherry-picked with -x has a new author
 // date; its line naming the commit and the subject make it a copy, of
 // the twins of that commit too, but not with another subject.
